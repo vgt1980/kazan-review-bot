@@ -254,7 +254,7 @@ export default function MiniApp() {
     setCurrentScreen('category')
     fetchPlaces(category)
     
-    if (window.Telegram?.WebApp) {
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       window.Telegram.WebApp.BackButton.show()
       window.Telegram.WebApp.HapticFeedback.impactOccurred('light')
     }
@@ -266,7 +266,7 @@ export default function MiniApp() {
     setCurrentScreen('place')
     fetchReviews(place.id)
     
-    if (window.Telegram?.WebApp) {
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       window.Telegram.WebApp.BackButton.show()
       window.Telegram.WebApp.HapticFeedback.impactOccurred('medium')
     }
@@ -284,7 +284,7 @@ export default function MiniApp() {
       text: '',
     })
     
-    if (window.Telegram?.WebApp) {
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       window.Telegram.WebApp.BackButton.show()
     }
   }
@@ -292,7 +292,7 @@ export default function MiniApp() {
   // Submit review
   const submitReview = async () => {
     if (!selectedPlace || reviewForm.text.length < 20) {
-      if (window.Telegram?.WebApp) {
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
         window.Telegram.WebApp.showAlert('Минимум 20 символов в тексте отзыва')
       }
       return
@@ -311,10 +311,12 @@ export default function MiniApp() {
       })
 
       if (response.ok) {
-        if (window.Telegram?.WebApp) {
+        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
           window.Telegram.WebApp.showAlert('Спасибо! Ваш отзыв отправлен на модерацию.', () => {
             setCurrentScreen('home')
-            window.Telegram?.WebApp.BackButton.hide()
+            if (window.Telegram?.WebApp) {
+              window.Telegram.WebApp.BackButton.hide()
+            }
           })
         }
       }
@@ -325,14 +327,36 @@ export default function MiniApp() {
     }
   }
 
-  // Get theme colors
-  const theme = window.Telegram?.WebApp?.themeParams
-  const bgColor = theme?.bg_color || '#ffffff'
-  const textColor = theme?.text_color || '#000000'
-  const buttonColor = theme?.button_color || '#3390ec'
-  const buttonTextColor = theme?.button_text_color || '#ffffff'
-  const secondaryBg = theme?.secondary_bg_color || '#f0f0f0'
-  const hintColor = theme?.hint_color || '#999999'
+  // Get theme colors (safe for SSR)
+  const getThemeColors = useCallback(() => {
+    if (typeof window === 'undefined' || !window.Telegram?.WebApp) {
+      return {
+        bgColor: '#ffffff',
+        textColor: '#000000',
+        buttonColor: '#3390ec',
+        buttonTextColor: '#ffffff',
+        secondaryBg: '#f0f0f0',
+        hintColor: '#999999',
+      };
+    }
+    const theme = window.Telegram.WebApp.themeParams;
+    return {
+      bgColor: theme?.bg_color || '#ffffff',
+      textColor: theme?.text_color || '#000000',
+      buttonColor: theme?.button_color || '#3390ec',
+      buttonTextColor: theme?.button_text_color || '#ffffff',
+      secondaryBg: theme?.secondary_bg_color || '#f0f0f0',
+      hintColor: theme?.hint_color || '#999999',
+    };
+  }, []);
+
+  const [themeColors, setThemeColors] = useState(getThemeColors());
+  const { bgColor, textColor, buttonColor, buttonTextColor, secondaryBg, hintColor } = themeColors;
+
+  // Update theme colors on mount
+  useEffect(() => {
+    setThemeColors(getThemeColors());
+  }, [getThemeColors]);
 
   // ==================== RENDER SCREENS ====================
 

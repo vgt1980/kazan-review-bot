@@ -100,6 +100,8 @@ import {
   addPlaceConfirm,
   addPlaceCancel,
 } from './handlers/admin';
+import { showAutoPostMenu, handleAutoPostAction } from './handlers/autopost';
+import { showImportMenu, handleImportAction } from './handlers/import';
 
 // Create bot
 const bot = new Bot<BotContext>(process.env.BOT_TOKEN || '');
@@ -376,6 +378,41 @@ bot.callbackQuery('admin_users', async (ctx) => {
   await ctx.answerCallbackQuery();
 });
 bot.callbackQuery('admin_stats', showStatistics);
+
+// Auto-posting
+bot.callbackQuery('admin_autopost', async (ctx) => {
+  await showAutoPostMenu(ctx);
+  await ctx.answerCallbackQuery();
+});
+bot.callbackQuery('autopost_random', async (ctx) => {
+  await handleAutoPostAction(ctx, 'random');
+});
+bot.callbackQuery('autopost_top', async (ctx) => {
+  await handleAutoPostAction(ctx, 'top');
+});
+bot.callbackQuery(/autopost_cat_(.+)/, async (ctx) => {
+  const category = ctx.match[1];
+  await handleAutoPostAction(ctx, `cat_${category}`);
+});
+
+// Import places
+bot.callbackQuery('admin_import', async (ctx) => {
+  await showImportMenu(ctx);
+  await ctx.answerCallbackQuery();
+});
+bot.callbackQuery('import_osm_stats', async (ctx) => {
+  await handleImportAction(ctx, 'osm_stats');
+});
+bot.callbackQuery('import_osm_all', async (ctx) => {
+  await handleImportAction(ctx, 'osm_all');
+});
+bot.callbackQuery(/import_osm_(.+)/, async (ctx) => {
+  const category = ctx.match[1];
+  await handleImportAction(ctx, `osm_${category}`);
+});
+bot.callbackQuery('import_check_dup', async (ctx) => {
+  await handleImportAction(ctx, 'check_dup');
+});
 
 // Add place flow
 bot.callbackQuery('admin_add_place', addPlaceStart);

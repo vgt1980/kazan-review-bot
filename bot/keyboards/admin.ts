@@ -21,8 +21,8 @@ export function getAdminMenuKeyboard(): InlineKeyboard {
     .text('🏪 Заведения', 'admin_places')
     .text('📊 Статистика', 'admin_stats')
     .row()
-    .text('📢 Рассылка', 'admin_broadcast')
-    .text('⚙️ Настройки', 'admin_settings')
+    .text('📢 Автопостинг', 'admin_autopost')
+    .text('📥 Импорт заведений', 'admin_import')
     .row()
     .text('🔙 Выход', 'admin_exit');
 }
@@ -223,4 +223,40 @@ export function getAddPlaceConfirmKeyboard(): InlineKeyboard {
     .text('✏️ Изменить', 'admin_edit_place')
     .row()
     .text('❌ Отмена', 'admin_cancel_add');
+}
+
+// ==================== AUTO-POSTING ====================
+
+// Auto-posting menu keyboard
+export function getAutoPostMenuKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('🎲 Случайный пост', 'autopost_random')
+    .text('🏆 ТОП заведений', 'autopost_top')
+    .row()
+    .text('🍔 Рестораны', 'autopost_cat_RESTAURANT')
+    .text('☕ Кофейни', 'autopost_cat_CAFE')
+    .row()
+    .text('🛍 Магазины', 'autopost_cat_SHOP')
+    .text('💅 Бьюти', 'autopost_cat_BEAUTY')
+    .row()
+    .text('⚙️ Настройки', 'autopost_settings')
+    .text('🔙 Меню', 'admin_menu');
+}
+
+// Import menu keyboard
+export function getImportMenuKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('📥 Импорт из OpenStreetMap', 'import_osm')
+    .row()
+    .text('🍔 Рестораны', 'import_cat_RESTAURANT')
+    .text('☕ Кофейни', 'import_cat_CAFE')
+    .row()
+    .text('🛍 Магазины', 'import_cat_SHOP')
+    .text('💅 Бьюти', 'import_cat_BEAUTY')
+    .row()
+    .text('🚗 Сервисы', 'import_cat_SERVICE')
+    .text('📥 Импортировать всё', 'import_all')
+    .row()
+    .text('📊 Статистика', 'import_stats')
+    .text('🔙 Меню', 'admin_menu');
 }
