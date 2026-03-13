@@ -26,7 +26,7 @@ export async function GET() {
           count: c._count.id,
         })),
       },
-      channelId: process.env.CHANNEL_ID,
+      channelId: process.env.CHANNEL_ID?.trim(),
     });
   } catch (error) {
     console.error('Error getting auto-post stats:', error);

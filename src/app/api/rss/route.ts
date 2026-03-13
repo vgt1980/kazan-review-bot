@@ -9,7 +9,7 @@ import {
 import { sendPhotoToChannel, sendMessageToChannel } from '@/lib/auto-poster/telegram-poster';
 import ZAI from 'z-ai-web-dev-sdk';
 
-const CHANNEL_ID = process.env.CHANNEL_ID || '-1003809470742';
+const CHANNEL_ID = (process.env.CHANNEL_ID || '-1003809470742').trim();
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 /**

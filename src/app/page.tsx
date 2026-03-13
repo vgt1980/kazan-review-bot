@@ -97,8 +97,13 @@ interface Place {
   name: string
   category: Category
   district: string | null
+  address: string | null
   rating: number
   reviewCount: number
+  avgFood?: number
+  avgService?: number
+  avgAtmosphere?: number
+  avgValue?: number
 }
 
 interface Review {
@@ -109,23 +114,28 @@ interface Review {
   atmosphereRating: number | null
   valueRating: number | null
   text: string
+  status: string
   createdAt: string
   user: {
     username: string | null
     firstName: string | null
   }
-  upvotes: number
-  downvotes: number
+  photos?: { fileId: string }[]
 }
 
-interface User {
-  id: string
-  telegramId: string
-  username: string | null
-  firstName: string | null
-  reviewCount: number
-  helpfulVotes: number
-  status: string
+interface RSSItem {
+  title: string
+  link: string
+  pubDate: string
+  source: string
+  imageUrl?: string
+}
+
+interface AdminStats {
+  totalUsers: number
+  totalPlaces: number
+  totalReviews: number
+  pendingReviews: number
 }
 
 // Category data
@@ -139,6 +149,9 @@ const CATEGORIES: { key: Category; name: string; icon: string }[] = [
   { key: 'OTHER', name: 'Другое', icon: '📦' },
 ]
 
+// Admin IDs
+const ADMIN_IDS = ['1892592914']
+
 // Navigation screens
 type Screen = 
   | 'home' 
@@ -147,21 +160,29 @@ type Screen =
   | 'review' 
   | 'profile' 
   | 'rankings' 
-  | 'search'
+  | 'news'
+  | 'admin'
+  | 'admin_reviews'
+  | 'admin_places'
+  | 'admin_rss'
 
 export default function MiniApp() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('home')
+  const [screenHistory, setScreenHistory] = useState<Screen[]>(['home'])
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null)
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null)
   const [places, setPlaces] = useState<Place[]>([])
+  const [allPlaces, setAllPlaces] = useState<Place[]>([])
   const [reviews, setReviews] = useState<Review[]>([])
-  const [user, setUser] = useState<User | null>(null)
+  const [rssItems, setRssItems] = useState<RSSItem[]>([])
+  const [adminStats, setAdminStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(false)
   const [tgUser, setTgUser] = useState<{
     id: number
     first_name: string
     username?: string
   } | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
 
   // Review form state
   const [reviewForm, setReviewForm] = useState({
@@ -188,37 +209,72 @@ export default function MiniApp() {
       // Get user data
       if (tg.initDataUnsafe.user) {
         setTgUser(tg.initDataUnsafe.user)
+        // Check if admin
+        setIsAdmin(ADMIN_IDS.includes(String(tg.initDataUnsafe.user.id)))
       }
       
       console.log('Telegram Web App initialized:', tg.version)
     }
   }, [])
 
+  // Navigate with history
+  const navigateTo = useCallback((screen: Screen) => {
+    setScreenHistory(prev => [...prev, screen])
+    setCurrentScreen(screen)
+    
+    // Show back button for non-home screens
+    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+      if (screen !== 'home') {
+        window.Telegram.WebApp.BackButton.show()
+      } else {
+        window.Telegram.WebApp.BackButton.hide()
+      }
+      window.Telegram.WebApp.HapticFeedback.impactOccurred('light')
+    }
+  }, [])
+
+  // Go back
+  const goBack = useCallback(() => {
+    if (screenHistory.length > 1) {
+      const newHistory = screenHistory.slice(0, -1)
+      setScreenHistory(newHistory)
+      const prevScreen = newHistory[newHistory.length - 1]
+      setCurrentScreen(prevScreen)
+      
+      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+        if (prevScreen === 'home') {
+          window.Telegram.WebApp.BackButton.hide()
+        }
+        window.Telegram.WebApp.HapticFeedback.impactOccurred('medium')
+      }
+    }
+  }, [screenHistory])
+
   // Handle back button
   useEffect(() => {
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp
-      
-      const handleBack = () => {
-        if (currentScreen === 'place') {
-          setCurrentScreen('category')
-          tg.BackButton.hide()
-        } else if (currentScreen === 'category' || currentScreen === 'review') {
-          setCurrentScreen('home')
-          tg.BackButton.hide()
-        } else if (currentScreen !== 'home') {
-          setCurrentScreen('home')
-          tg.BackButton.hide()
-        }
-      }
-      
-      tg.BackButton.onClick(handleBack)
+      tg.BackButton.onClick(goBack)
       
       return () => {
-        tg.BackButton.offClick(handleBack)
+        tg.BackButton.offClick(goBack)
       }
     }
-  }, [currentScreen])
+  }, [goBack])
+
+  // Fetch all places on mount
+  useEffect(() => {
+    const fetchAllPlaces = async () => {
+      try {
+        const response = await fetch('/api/places')
+        const data = await response.json()
+        setAllPlaces(data.places || [])
+      } catch (error) {
+        console.error('Error fetching places:', error)
+      }
+    }
+    fetchAllPlaces()
+  }, [])
 
   // Fetch places by category
   const fetchPlaces = useCallback(async (category: Category) => {
@@ -248,33 +304,51 @@ export default function MiniApp() {
     }
   }, [])
 
+  // Fetch RSS news
+  const fetchRSS = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/rss')
+      const data = await response.json()
+      setRssItems(data.items || [])
+    } catch (error) {
+      console.error('Error fetching RSS:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Fetch admin stats
+  const fetchAdminStats = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch('/api/admin/stats')
+      const data = await response.json()
+      setAdminStats(data)
+    } catch (error) {
+      console.error('Error fetching admin stats:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   // Navigate to category
   const openCategory = (category: Category) => {
     setSelectedCategory(category)
-    setCurrentScreen('category')
     fetchPlaces(category)
-    
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.BackButton.show()
-      window.Telegram.WebApp.HapticFeedback.impactOccurred('light')
-    }
+    navigateTo('category')
   }
 
   // Navigate to place
   const openPlace = (place: Place) => {
     setSelectedPlace(place)
-    setCurrentScreen('place')
     fetchReviews(place.id)
-    
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.BackButton.show()
-      window.Telegram.WebApp.HapticFeedback.impactOccurred('medium')
-    }
+    navigateTo('place')
   }
 
   // Start review form
   const startReview = () => {
-    setCurrentScreen('review')
+    navigateTo('review')
     setReviewForm({
       overallRating: 5,
       foodRating: 5,
@@ -283,10 +357,6 @@ export default function MiniApp() {
       valueRating: 5,
       text: '',
     })
-    
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      window.Telegram.WebApp.BackButton.show()
-    }
   }
 
   // Submit review
@@ -313,10 +383,7 @@ export default function MiniApp() {
       if (response.ok) {
         if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
           window.Telegram.WebApp.showAlert('Спасибо! Ваш отзыв отправлен на модерацию.', () => {
-            setCurrentScreen('home')
-            if (window.Telegram?.WebApp) {
-              window.Telegram.WebApp.BackButton.hide()
-            }
+            goBack()
           })
         }
       }
@@ -358,6 +425,12 @@ export default function MiniApp() {
     setThemeColors(getThemeColors());
   }, [getThemeColors]);
 
+  // Get top places
+  const topPlaces = allPlaces
+    .filter(p => p.reviewCount >= 1)
+    .sort((a, b) => b.rating - a.rating)
+    .slice(0, 10)
+
   // ==================== RENDER SCREENS ====================
 
   // Home Screen
@@ -369,7 +442,7 @@ export default function MiniApp() {
           Честные отзывы Казани
         </h1>
         <p className="text-sm" style={{ color: hintColor }}>
-          Выберите категорию для просмотра заведений
+          {allPlaces.length} заведений • Выберите категорию
         </p>
       </div>
 
@@ -379,19 +452,27 @@ export default function MiniApp() {
           КАТЕГОРИИ
         </h2>
         <div className="grid grid-cols-2 gap-3">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.key}
-              onClick={() => openCategory(cat.key)}
-              className="flex items-center gap-3 p-4 rounded-xl transition-all active:scale-95"
-              style={{ backgroundColor: secondaryBg }}
-            >
-              <span className="text-2xl">{cat.icon}</span>
-              <span className="font-medium" style={{ color: textColor }}>
-                {cat.name}
-              </span>
-            </button>
-          ))}
+          {CATEGORIES.map((cat) => {
+            const count = allPlaces.filter(p => p.category === cat.key).length
+            return (
+              <button
+                key={cat.key}
+                onClick={() => openCategory(cat.key)}
+                className="flex items-center gap-3 p-4 rounded-xl transition-all active:scale-95"
+                style={{ backgroundColor: secondaryBg }}
+              >
+                <span className="text-2xl">{cat.icon}</span>
+                <div className="text-left">
+                  <span className="font-medium block" style={{ color: textColor }}>
+                    {cat.name}
+                  </span>
+                  <span className="text-xs" style={{ color: hintColor }}>
+                    {count} мест
+                  </span>
+                </div>
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -402,7 +483,23 @@ export default function MiniApp() {
         </h2>
         <div className="space-y-2">
           <button
-            onClick={() => setCurrentScreen('rankings')}
+            onClick={() => { fetchRSS(); navigateTo('news') }}
+            className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
+            style={{ backgroundColor: secondaryBg }}
+          >
+            <span className="text-xl">📰</span>
+            <div className="text-left">
+              <div className="font-medium" style={{ color: textColor }}>
+                Новости Казани
+              </div>
+              <div className="text-xs" style={{ color: hintColor }}>
+                RSS лента
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => navigateTo('rankings')}
             className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
             style={{ backgroundColor: secondaryBg }}
           >
@@ -412,13 +509,13 @@ export default function MiniApp() {
                 Рейтинг заведений
               </div>
               <div className="text-xs" style={{ color: hintColor }}>
-                ТОП и худшие места
+                ТОП и лучшие места
               </div>
             </div>
           </button>
           
           <button
-            onClick={() => setCurrentScreen('profile')}
+            onClick={() => navigateTo('profile')}
             className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
             style={{ backgroundColor: secondaryBg }}
           >
@@ -432,6 +529,24 @@ export default function MiniApp() {
               </div>
             </div>
           </button>
+
+          {isAdmin && (
+            <button
+              onClick={() => { fetchAdminStats(); navigateTo('admin') }}
+              className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98 border-2"
+              style={{ backgroundColor: secondaryBg, borderColor: buttonColor }}
+            >
+              <span className="text-xl">⚙️</span>
+              <div className="text-left">
+                <div className="font-medium" style={{ color: buttonColor }}>
+                  Админ панель
+                </div>
+                <div className="text-xs" style={{ color: hintColor }}>
+                  Управление и модерация
+                </div>
+              </div>
+            </button>
+          )}
         </div>
       </div>
 
@@ -447,7 +562,7 @@ export default function MiniApp() {
         <button 
           className="flex flex-col items-center gap-1" 
           style={{ color: hintColor }}
-          onClick={() => setCurrentScreen('rankings')}
+          onClick={() => navigateTo('rankings')}
         >
           <span className="text-xl">🏆</span>
           <span className="text-xs">Рейтинг</span>
@@ -455,7 +570,15 @@ export default function MiniApp() {
         <button 
           className="flex flex-col items-center gap-1"
           style={{ color: hintColor }}
-          onClick={() => setCurrentScreen('profile')}
+          onClick={() => { fetchRSS(); navigateTo('news') }}
+        >
+          <span className="text-xl">📰</span>
+          <span className="text-xs">Новости</span>
+        </button>
+        <button 
+          className="flex flex-col items-center gap-1"
+          style={{ color: hintColor }}
+          onClick={() => navigateTo('profile')}
         >
           <span className="text-xl">👤</span>
           <span className="text-xs">Профиль</span>
@@ -490,18 +613,18 @@ export default function MiniApp() {
               className="w-full flex items-center justify-between p-4 rounded-xl transition-all active:scale-98"
               style={{ backgroundColor: secondaryBg }}
             >
-              <div className="text-left">
+              <div className="text-left flex-1">
                 <div className="font-medium" style={{ color: textColor }}>
                   {place.name}
                 </div>
-                {place.district && (
+                {place.address && (
                   <div className="text-xs" style={{ color: hintColor }}>
-                    📍 {place.district}
+                    📍 {place.address}
                   </div>
                 )}
               </div>
               {place.reviewCount > 0 && (
-                <div className="text-right">
+                <div className="text-right ml-2">
                   <div className="flex items-center gap-1">
                     <span className="text-yellow-500">⭐</span>
                     <span className="font-bold" style={{ color: textColor }}>
@@ -539,10 +662,10 @@ export default function MiniApp() {
           <span style={{ color: hintColor }}>
             {CATEGORIES.find(c => c.key === selectedPlace?.category)?.name}
           </span>
-          {selectedPlace?.district && (
+          {selectedPlace?.address && (
             <>
               <span style={{ color: hintColor }}>•</span>
-              <span style={{ color: hintColor }}>📍 {selectedPlace.district}</span>
+              <span style={{ color: hintColor }}>📍 {selectedPlace.address}</span>
             </>
           )}
         </div>
@@ -561,6 +684,36 @@ export default function MiniApp() {
             </div>
           </div>
         )}
+
+        {/* Detailed ratings */}
+        {selectedPlace && selectedPlace.reviewCount > 0 && (
+          <div className="grid grid-cols-4 gap-2 mt-3">
+            {selectedPlace.avgFood && selectedPlace.avgFood > 0 && (
+              <div className="text-center p-2 rounded-lg" style={{ backgroundColor: bgColor }}>
+                <div className="text-xs" style={{ color: hintColor }}>🍽 Еда</div>
+                <div className="font-bold" style={{ color: textColor }}>{selectedPlace.avgFood.toFixed(1)}</div>
+              </div>
+            )}
+            {selectedPlace.avgService && selectedPlace.avgService > 0 && (
+              <div className="text-center p-2 rounded-lg" style={{ backgroundColor: bgColor }}>
+                <div className="text-xs" style={{ color: hintColor }}>🤝 Сервис</div>
+                <div className="font-bold" style={{ color: textColor }}>{selectedPlace.avgService.toFixed(1)}</div>
+              </div>
+            )}
+            {selectedPlace.avgAtmosphere && selectedPlace.avgAtmosphere > 0 && (
+              <div className="text-center p-2 rounded-lg" style={{ backgroundColor: bgColor }}>
+                <div className="text-xs" style={{ color: hintColor }}>🏠 Атм.</div>
+                <div className="font-bold" style={{ color: textColor }}>{selectedPlace.avgAtmosphere.toFixed(1)}</div>
+              </div>
+            )}
+            {selectedPlace.avgValue && selectedPlace.avgValue > 0 && (
+              <div className="text-center p-2 rounded-lg" style={{ backgroundColor: bgColor }}>
+                <div className="text-xs" style={{ color: hintColor }}>💰 Ц/К</div>
+                <div className="font-bold" style={{ color: textColor }}>{selectedPlace.avgValue.toFixed(1)}</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Reviews */}
@@ -575,7 +728,7 @@ export default function MiniApp() {
           </div>
         ) : (
           <div className="space-y-3">
-            {reviews.map((review) => (
+            {reviews.filter(r => r.status === 'approved').map((review) => (
               <div
                 key={review.id}
                 className="p-4 rounded-xl"
@@ -607,18 +760,13 @@ export default function MiniApp() {
                   {review.text}
                 </p>
 
-                <div className="flex items-center gap-4 text-xs" style={{ color: hintColor }}>
-                  <button className="flex items-center gap-1">
-                    👍 {review.upvotes}
-                  </button>
-                  <button className="flex items-center gap-1">
-                    👎 {review.downvotes}
-                  </button>
+                <div className="text-xs" style={{ color: hintColor }}>
+                  {new Date(review.createdAt).toLocaleDateString('ru-RU')}
                 </div>
               </div>
             ))}
 
-            {reviews.length === 0 && (
+            {reviews.filter(r => r.status === 'approved').length === 0 && (
               <div className="text-center py-6" style={{ color: hintColor }}>
                 <div className="text-3xl mb-2">📝</div>
                 <div>Отзывов пока нет</div>
@@ -654,7 +802,7 @@ export default function MiniApp() {
         </p>
       </div>
 
-      <div className="px-4 space-y-6 py-2">
+      <div className="px-4 space-y-4 py-2">
         {/* Overall Rating */}
         <div className="p-4 rounded-xl" style={{ backgroundColor: secondaryBg }}>
           <label className="block font-medium mb-3" style={{ color: textColor }}>
@@ -669,11 +817,6 @@ export default function MiniApp() {
             className="w-full h-2 rounded-lg appearance-none cursor-pointer"
             style={{ backgroundColor: buttonColor }}
           />
-          <div className="flex justify-between text-xs mt-1" style={{ color: hintColor }}>
-            <span>1</span>
-            <span>5</span>
-            <span>10</span>
-          </div>
         </div>
 
         {/* Food Rating */}
@@ -783,15 +926,99 @@ export default function MiniApp() {
         <h1 className="text-xl font-bold" style={{ color: textColor }}>
           🏆 Рейтинг заведений
         </h1>
+        <p className="text-sm" style={{ color: hintColor }}>
+          Лучшие места по отзывам
+        </p>
       </div>
 
-      <div className="px-4">
-        <div className="text-center py-8" style={{ color: hintColor }}>
-          <div className="text-4xl mb-2">🏆</div>
-          <div>Рейтинг формируется на основе отзывов</div>
-          <div className="text-sm">Минимум 3 отзыва для участия</div>
-        </div>
+      <div className="px-4 space-y-2">
+        {topPlaces.map((place, index) => (
+          <button
+            key={place.id}
+            onClick={() => openPlace(place)}
+            className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
+            style={{ backgroundColor: secondaryBg }}
+          >
+            <div 
+              className="w-8 h-8 rounded-full flex items-center justify-center font-bold"
+              style={{ 
+                backgroundColor: index === 0 ? '#FFD700' : index === 1 ? '#C0C0C0' : index === 2 ? '#CD7F32' : buttonColor,
+                color: '#fff'
+              }}
+            >
+              {index + 1}
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-medium" style={{ color: textColor }}>
+                {place.name}
+              </div>
+              <div className="text-xs" style={{ color: hintColor }}>
+                {CATEGORIES.find(c => c.key === place.category)?.name} • {place.reviewCount} отзывов
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-yellow-500">⭐</span>
+              <span className="font-bold" style={{ color: textColor }}>
+                {place.rating.toFixed(1)}
+              </span>
+            </div>
+          </button>
+        ))}
+
+        {topPlaces.length === 0 && (
+          <div className="text-center py-8" style={{ color: hintColor }}>
+            <div className="text-4xl mb-2">🏆</div>
+            <div>Рейтинг формируется на основе отзывов</div>
+          </div>
+        )}
       </div>
+    </div>
+  )
+
+  // News Screen
+  const renderNews = () => (
+    <div className="min-h-screen pb-4" style={{ backgroundColor: bgColor }}>
+      <div className="sticky top-0 z-10 px-4 py-3" style={{ backgroundColor: bgColor }}>
+        <h1 className="text-xl font-bold" style={{ color: textColor }}>
+          📰 Новости Казани
+        </h1>
+        <p className="text-sm" style={{ color: hintColor }}>
+          Актуальные события города
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-gray-300 border-t-blue-500" />
+        </div>
+      ) : (
+        <div className="px-4 space-y-3">
+          {rssItems.map((item, index) => (
+            <a
+              key={index}
+              href={item.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block p-4 rounded-xl transition-all active:scale-98"
+              style={{ backgroundColor: secondaryBg }}
+            >
+              {item.imageUrl && (
+                <img 
+                  src={item.imageUrl} 
+                  alt=""
+                  className="w-full h-32 object-cover rounded-lg mb-2"
+                />
+              )}
+              <div className="font-medium" style={{ color: textColor }}>
+                {item.title}
+              </div>
+              <div className="text-xs mt-1" style={{ color: hintColor }}>
+                {item.source} • {new Date(item.pubDate).toLocaleDateString('ru-RU')}
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   )
 
@@ -847,6 +1074,272 @@ export default function MiniApp() {
     </div>
   )
 
+  // Admin Screen
+  const renderAdmin = () => (
+    <div className="min-h-screen pb-4" style={{ backgroundColor: bgColor }}>
+      <div className="sticky top-0 z-10 px-4 py-3" style={{ backgroundColor: bgColor }}>
+        <h1 className="text-xl font-bold" style={{ color: textColor }}>
+          ⚙️ Админ панель
+        </h1>
+        <p className="text-sm" style={{ color: hintColor }}>
+          Управление сервисом
+        </p>
+      </div>
+
+      {/* Stats */}
+      {adminStats && (
+        <div className="px-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: secondaryBg }}>
+              <div className="text-2xl font-bold" style={{ color: buttonColor }}>{adminStats.totalUsers}</div>
+              <div className="text-xs" style={{ color: hintColor }}>Пользователей</div>
+            </div>
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: secondaryBg }}>
+              <div className="text-2xl font-bold" style={{ color: buttonColor }}>{adminStats.totalPlaces}</div>
+              <div className="text-xs" style={{ color: hintColor }}>Заведений</div>
+            </div>
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: secondaryBg }}>
+              <div className="text-2xl font-bold" style={{ color: buttonColor }}>{adminStats.totalReviews}</div>
+              <div className="text-xs" style={{ color: hintColor }}>Отзывов</div>
+            </div>
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: secondaryBg }}>
+              <div className="text-2xl font-bold" style={{ color: '#FF6B6B' }}>{adminStats.pendingReviews}</div>
+              <div className="text-xs" style={{ color: hintColor }}>На модерации</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Actions */}
+      <div className="px-4 py-4 space-y-2">
+        <h2 className="text-sm font-semibold mb-2" style={{ color: hintColor }}>
+          ДЕЙСТВИЯ
+        </h2>
+
+        <button
+          onClick={() => navigateTo('admin_reviews')}
+          className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
+          style={{ backgroundColor: secondaryBg }}
+        >
+          <span className="text-xl">📝</span>
+          <div className="text-left flex-1">
+            <div className="font-medium" style={{ color: textColor }}>
+              Модерация отзывов
+            </div>
+            <div className="text-xs" style={{ color: hintColor }}>
+              {adminStats?.pendingReviews || 0} ожидают проверки
+            </div>
+          </div>
+          <span style={{ color: hintColor }}>→</span>
+        </button>
+
+        <button
+          onClick={() => navigateTo('admin_places')}
+          className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
+          style={{ backgroundColor: secondaryBg }}
+        >
+          <span className="text-xl">🏪</span>
+          <div className="text-left flex-1">
+            <div className="font-medium" style={{ color: textColor }}>
+              Управление заведениями
+            </div>
+            <div className="text-xs" style={{ color: hintColor }}>
+              Добавление и редактирование
+            </div>
+          </div>
+          <span style={{ color: hintColor }}>→</span>
+        </button>
+
+        <button
+          onClick={() => navigateTo('admin_rss')}
+          className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
+          style={{ backgroundColor: secondaryBg }}
+        >
+          <span className="text-xl">📰</span>
+          <div className="text-left flex-1">
+            <div className="font-medium" style={{ color: textColor }}>
+              RSS автопостинг
+            </div>
+            <div className="text-xs" style={{ color: hintColor }}>
+              Новости в канал
+            </div>
+          </div>
+          <span style={{ color: hintColor }}>→</span>
+        </button>
+
+        <button
+          onClick={async () => {
+            if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+              window.Telegram.WebApp.showConfirm('Опубликовать случайный отзыв в канал?', async (confirmed) => {
+                if (confirmed) {
+                  try {
+                    const response = await fetch('/api/auto-post', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'random' })
+                    })
+                    const data = await response.json()
+                    window.Telegram.WebApp.showAlert(data.success ? '✅ Опубликовано!' : '❌ Ошибка')
+                  } catch (e) {
+                    window.Telegram.WebApp.showAlert('❌ Ошибка отправки')
+                  }
+                }
+              })
+            }
+          }}
+          className="w-full flex items-center gap-3 p-4 rounded-xl transition-all active:scale-98"
+          style={{ backgroundColor: buttonColor }}
+        >
+          <span className="text-xl">📤</span>
+          <div className="text-left flex-1">
+            <div className="font-medium" style={{ color: buttonTextColor }}>
+              Опубликовать в канал
+            </div>
+            <div className="text-xs" style={{ color: buttonTextColor, opacity: 0.8 }}>
+              Случайный отзыв
+            </div>
+          </div>
+        </button>
+      </div>
+    </div>
+  )
+
+  // Admin Reviews Screen
+  const renderAdminReviews = () => (
+    <div className="min-h-screen pb-4" style={{ backgroundColor: bgColor }}>
+      <div className="sticky top-0 z-10 px-4 py-3" style={{ backgroundColor: bgColor }}>
+        <h1 className="text-xl font-bold" style={{ color: textColor }}>
+          📝 Модерация отзывов
+        </h1>
+      </div>
+
+      <div className="px-4 text-center py-8" style={{ color: hintColor }}>
+        <div className="text-4xl mb-2">✅</div>
+        <div>Нет отзывов на модерации</div>
+      </div>
+    </div>
+  )
+
+  // Admin Places Screen
+  const renderAdminPlaces = () => (
+    <div className="min-h-screen pb-4" style={{ backgroundColor: bgColor }}>
+      <div className="sticky top-0 z-10 px-4 py-3" style={{ backgroundColor: bgColor }}>
+        <h1 className="text-xl font-bold" style={{ color: textColor }}>
+          🏪 Заведения
+        </h1>
+        <p className="text-sm" style={{ color: hintColor }}>
+          {allPlaces.length} заведений
+        </p>
+      </div>
+
+      <div className="px-4 space-y-2">
+        {allPlaces.slice(0, 20).map((place) => (
+          <div
+            key={place.id}
+            className="flex items-center justify-between p-3 rounded-xl"
+            style={{ backgroundColor: secondaryBg }}
+          >
+            <div>
+              <div className="font-medium" style={{ color: textColor }}>{place.name}</div>
+              <div className="text-xs" style={{ color: hintColor }}>
+                {CATEGORIES.find(c => c.key === place.category)?.name}
+              </div>
+            </div>
+            {place.reviewCount > 0 && (
+              <div className="text-xs" style={{ color: hintColor }}>
+                ⭐ {place.rating.toFixed(1)}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  // Admin RSS Screen
+  const renderAdminRSS = () => (
+    <div className="min-h-screen pb-4" style={{ backgroundColor: bgColor }}>
+      <div className="sticky top-0 z-10 px-4 py-3" style={{ backgroundColor: bgColor }}>
+        <h1 className="text-xl font-bold" style={{ color: textColor }}>
+          📰 RSS автопостинг
+        </h1>
+      </div>
+
+      <div className="px-4 space-y-3">
+        <button
+          onClick={async () => {
+            setLoading(true)
+            await fetchRSS()
+            setLoading(false)
+          }}
+          className="w-full p-4 rounded-xl text-left"
+          style={{ backgroundColor: secondaryBg }}
+        >
+          <div className="font-medium" style={{ color: textColor }}>
+            🔄 Обновить новости
+          </div>
+          <div className="text-xs" style={{ color: hintColor }}>
+            Загрузить свежие RSS новости
+          </div>
+        </button>
+
+        <button
+          onClick={async () => {
+            if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+              window.Telegram.WebApp.showConfirm('Опубликовать последнюю новость в канал?', async (confirmed) => {
+                if (confirmed) {
+                  try {
+                    const response = await fetch('/api/rss', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'publish_latest' })
+                    })
+                    const data = await response.json()
+                    window.Telegram.WebApp.showAlert(data.success ? '✅ Опубликовано!' : '❌ Ошибка')
+                  } catch (e) {
+                    window.Telegram.WebApp.showAlert('❌ Ошибка отправки')
+                  }
+                }
+              })
+            }
+          }}
+          className="w-full p-4 rounded-xl text-left"
+          style={{ backgroundColor: buttonColor }}
+        >
+          <div className="font-medium" style={{ color: buttonTextColor }}>
+            📤 Опубликовать в канал
+          </div>
+          <div className="text-xs" style={{ color: buttonTextColor, opacity: 0.8 }}>
+            Последняя новость из RSS
+          </div>
+        </button>
+      </div>
+
+      {/* RSS Items preview */}
+      {rssItems.length > 0 && (
+        <div className="px-4 mt-4">
+          <h2 className="text-sm font-semibold mb-2" style={{ color: hintColor }}>
+            Последние новости
+          </h2>
+          <div className="space-y-2">
+            {rssItems.slice(0, 5).map((item, index) => (
+              <div
+                key={index}
+                className="p-3 rounded-xl"
+                style={{ backgroundColor: secondaryBg }}
+              >
+                <div className="text-sm" style={{ color: textColor }}>{item.title}</div>
+                <div className="text-xs mt-1" style={{ color: hintColor }}>
+                  {item.source}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   // Main render
   return (
     <>
@@ -857,7 +1350,12 @@ export default function MiniApp() {
       {currentScreen === 'place' && renderPlace()}
       {currentScreen === 'review' && renderReviewForm()}
       {currentScreen === 'rankings' && renderRankings()}
+      {currentScreen === 'news' && renderNews()}
       {currentScreen === 'profile' && renderProfile()}
+      {currentScreen === 'admin' && renderAdmin()}
+      {currentScreen === 'admin_reviews' && renderAdminReviews()}
+      {currentScreen === 'admin_places' && renderAdminPlaces()}
+      {currentScreen === 'admin_rss' && renderAdminRSS()}
     </>
   )
 }
