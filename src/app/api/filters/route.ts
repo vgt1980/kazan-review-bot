@@ -1,31 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// All available categories with labels
-const ALL_CATEGORIES = [
-  { value: 'RESTAURANT', label: '🍽️ Рестораны', icon: '🍽️' },
-  { value: 'CAFE', label: '☕ Кафе и кофейни', icon: '☕' },
-  { value: 'BAR', label: '🍺 Бары и пабы', icon: '🍺' },
-  { value: 'FAST_FOOD', label: '🍔 Быстрое питание', icon: '🍔' },
-  { value: 'HOTEL', label: '🏨 Отели и гостиницы', icon: '🏨' },
-  { value: 'SHOP', label: '🛍️ Магазины', icon: '🛍️' },
-  { value: 'BEAUTY', label: '💅 Салоны красоты', icon: '💅' },
-  { value: 'MALL', label: '🏬 Торговые центры', icon: '🏬' },
-  { value: 'FITNESS', label: '💪 Фитнес и спорт', icon: '💪' },
-  { value: 'ENTERTAINMENT', label: '🎭 Развлечения', icon: '🎭' },
-  { value: 'SERVICE', label: '🚗 Услуги', icon: '🚗' },
-  { value: 'HEALTH', label: '🏥 Здоровье', icon: '🏥' },
-  { value: 'OTHER', label: '📦 Другое', icon: '📦' },
+const CATEGORIES = [
+  { value: 'RESTAURANT', label: '🍽️ Рестораны' },
+  { value: 'CAFE', label: '☕ Кафе и кофейни' },
+  { value: 'BAR', label: '🍺 Бары и пабы' },
+  { value: 'FAST_FOOD', label: '🍔 Быстрое питание' },
+  { value: 'HOTEL', label: '🏨 Отели' },
+  { value: 'BEAUTY', label: '💅 Салоны красоты' },
+  { value: 'FITNESS', label: '💪 Фитнес' },
+  { value: 'SERVICE', label: '🚗 Услуги' },
+  { value: 'HEALTH', label: '🏥 Здоровье' },
+  { value: 'OTHER', label: '📦 Другое' },
 ];
 
-const KAZAN_DISTRICTS = [
-  { value: 'Авиастроительный', label: 'Авиастроительный' },
-  { value: 'Вахитовский', label: 'Вахитовский' },
-  { value: 'Кировский', label: 'Кировский' },
-  { value: 'Московский', label: 'Московский' },
-  { value: 'Ново-Савиновский', label: 'Ново-Савиновский' },
-  { value: 'Приволжский', label: 'Приволжский' },
-  { value: 'Советский', label: 'Советский' },
+const DISTRICTS = [
+  'Авиастроительный', 'Вахитовский', 'Кировский',
+  'Московский', 'Ново-Савиновский', 'Приволжский', 'Советский',
 ];
 
 export async function GET(request: NextRequest) {
@@ -34,80 +25,73 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
 
     if (action === 'search') {
-      const query = searchParams.get('q') || '';
+      const q = searchParams.get('q') || '';
       const category = searchParams.get('category');
-      const limit = parseInt(searchParams.get('limit') || '20');
 
-      if (!query || query.length < 2) {
+      if (q.length < 2) {
         return NextResponse.json({ places: [], total: 0 });
       }
 
       const where: any = {
-        name: { contains: query, mode: 'insensitive' },
+        name: { contains: q, mode: 'insensitive' },
       };
-
       if (category) where.category = category;
 
-      const [places, total] = await Promise.all([
-        db.place.findMany({
-          where,
-          take: limit,
-          orderBy: [{ rating: 'desc' }, { name: 'asc' }],
-          select: { id: true, name: true, category: true, district: true, address: true, rating: true, reviewCount: true },
-        }),
-        db.place.count({ where }),
-      ]);
-
-      return NextResponse.json({
-        places: places.map(p => ({
-          ...p,
-          categoryLabel: ALL_CATEGORIES.find(c => c.value === p.category)?.label || p.category,
-        })),
-        total,
+      const places = await db.place.findMany({
+        where,
+        take: 20,
+        orderBy: { rating: 'desc' },
       });
+
+      return NextResponse.json({ places, total: places.length });
     }
 
-    const places = await db.place.findMany({
-      select: { category: true, district: true }
+    // Get counts
+    const total = await db.place.count();
+    
+    const categoryCounts = await db.place.groupBy({
+      by: ['category'],
+      _count: { id: true },
     });
 
-    const categoryCount: Record<string, number> = {};
-    const districtCount: Record<string, number> = {};
-
-    places.forEach(place => {
-      if (place.category) categoryCount[place.category] = (categoryCount[place.category] || 0) + 1;
-      if (place.district) districtCount[place.district] = (districtCount[place.district] || 0) + 1;
+    const districtCounts = await db.place.groupBy({
+      by: ['district'],
+      _count: { id: true },
     });
 
-    const categories = ALL_CATEGORIES.map(cat => ({
-      ...cat,
-      count: categoryCount[cat.value] || 0,
-    })).sort((a, b) => b.count - a.count);
+    const categoryMap = Object.fromEntries(
+      categoryCounts.map(c => [c.category, c._count.id])
+    );
 
-    const districts = KAZAN_DISTRICTS.map(d => ({
-      ...d,
-      count: districtCount[d.value] || 0,
-    })).sort((a, b) => b.count - a.count);
+    const districtMap = Object.fromEntries(
+      districtCounts.filter(d => d.district).map(d => [d.district, d._count.id])
+    );
 
     return NextResponse.json({
-      categories,
-      districts,
-      totalPlaces: places.length,
+      categories: CATEGORIES.map(c => ({
+        ...c,
+        count: categoryMap[c.value] || 0,
+      })).sort((a, b) => b.count - a.count),
+      districts: DISTRICTS.map(d => ({
+        value: d,
+        label: d,
+        count: districtMap[d] || 0,
+      })).sort((a, b) => b.count - a.count),
+      totalPlaces: total,
     });
   } catch (error) {
-    console.error('Error fetching filters:', error);
-    return NextResponse.json({ error: 'Failed to fetch filters' }, { status: 500 });
+    console.error('Filters error:', error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { query, categories, districts, limit = 20, offset = 0 } = body;
+    const { query, categories, districts, limit = 20, offset = 0 } = await request.json();
 
     const where: any = {};
 
-    if (query && query.length >= 2) {
+    if (query?.length >= 2) {
       where.OR = [
         { name: { contains: query, mode: 'insensitive' } },
         { address: { contains: query, mode: 'insensitive' } },
@@ -118,26 +102,13 @@ export async function POST(request: NextRequest) {
     if (districts?.length) where.district = { in: districts };
 
     const [places, total] = await Promise.all([
-      db.place.findMany({
-        where,
-        take: limit,
-        skip: offset,
-        orderBy: [{ rating: 'desc' }, { name: 'asc' }],
-        select: { id: true, name: true, category: true, district: true, address: true, rating: true, reviewCount: true },
-      }),
+      db.place.findMany({ where, take: limit, skip: offset, orderBy: { rating: 'desc' } }),
       db.place.count({ where }),
     ]);
 
-    return NextResponse.json({
-      places: places.map(p => ({
-        ...p,
-        categoryLabel: ALL_CATEGORIES.find(c => c.value === p.category)?.label || p.category,
-      })),
-      total,
-      hasMore: total > offset + limit,
-    });
+    return NextResponse.json({ places, total, hasMore: total > offset + limit });
   } catch (error) {
-    console.error('Error searching places:', error);
-    return NextResponse.json({ error: 'Failed to search places' }, { status: 500 });
+    console.error('Search error:', error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
