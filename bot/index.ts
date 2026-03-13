@@ -109,6 +109,17 @@ const bot = new Bot<BotContext>(process.env.BOT_TOKEN || '');
 // Apply session middleware
 bot.use(sessionMiddleware);
 
+// Bot initialization promise (for webhook mode)
+let botInitPromise: Promise<void> | null = null;
+
+// Initialize bot (needed for webhook mode)
+export async function initBot(): Promise<void> {
+  if (!botInitPromise) {
+    botInitPromise = bot.init();
+  }
+  await botInitPromise;
+}
+
 // ==================== SETUP MENU BUTTON ====================
 
 // Setup bot menu on startup

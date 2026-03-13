@@ -2,46 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 
 // Webhook endpoint for Telegram
 export async function POST(request: NextRequest) {
-  const debug: string[] = [];
-  
   try {
-    debug.push('Starting bot import...');
+    // Import bot and init function
+    const { default: bot, initBot } = await import('../../../../bot');
     
-    // Check environment
-    debug.push(`BOT_TOKEN: ${process.env.BOT_TOKEN ? 'set' : 'missing'}`);
-    debug.push(`TURSO_URL: ${process.env.TURSO_DATABASE_URL ? 'set' : 'missing'}`);
-    debug.push(`TURSO_TOKEN: ${process.env.TURSO_AUTH_TOKEN ? 'set' : 'missing'}`);
-    
-    // Try to import bot
-    let bot;
-    try {
-      const botModule = await import('../../../../bot');
-      bot = botModule.default;
-      debug.push('Bot imported successfully');
-    } catch (importError) {
-      const errMsg = importError instanceof Error ? importError.message : String(importError);
-      debug.push(`Bot import failed: ${errMsg}`);
-      return NextResponse.json({ 
-        error: 'Bot import failed', 
-        debug,
-        details: errMsg 
-      }, { status: 500 });
-    }
+    // Initialize bot for webhook mode (required by grammY)
+    await initBot();
     
     const body = await request.json();
-    debug.push(`Received update: ${JSON.stringify(body).substring(0, 100)}...`);
     
     // Process the update
     await bot.handleUpdate(body);
-    debug.push('Update processed successfully');
     
-    return NextResponse.json({ ok: true, debug });
+    return NextResponse.json({ ok: true });
   } catch (error) {
+    console.error('Error processing webhook:', error);
+    
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    debug.push(`Error: ${errorMessage}`);
+    console.error('Error details:', errorMessage);
     
     return NextResponse.json(
-      { error: 'Internal server error', debug, details: errorMessage },
+      { error: 'Internal server error', details: errorMessage },
       { status: 500 }
     );
   }
