@@ -1,9 +1,6 @@
 /**
  * 2GIS API Integration for Kazan places
- * Fetches places data from 2GIS directories
- * 
  * API Docs: https://docs.2gis.com/en/api/search/places/overview
- * To get API key: https://dev.2gis.com/api
  */
 
 export interface TwoGISPlace {
@@ -21,142 +18,176 @@ export interface TwoGISPlace {
     phones?: { number: string; type?: string }[];
     websites?: { url: string }[];
   };
-  schedule?: {
-    days: { day: string; hours: string }[];
-  };
+  schedule?: any;
   rating?: {
     score: number;
     reviewsCount: number;
   };
   photos?: { url: string }[];
   categories?: string[];
-}
-
-export interface TwoGISSearchResult {
-  places: TwoGISPlace[];
-  total: number;
-  hasMore: boolean;
+  rubrics?: string[];
 }
 
 // 2GIS API configuration
+const TWOGIS_API_KEY = process.env.TWOGIS_API_KEY || '629f0d11-ac03-44b8-893b-c772f057c68f';
 const TWOGIS_API_URL = 'https://catalog.api.2gis.ru';
-const TWOGIS_API_KEY = process.env.TWOGIS_API_KEY || '';
 
-// Kazan city ID in 2GIS
+// Kazan region ID in 2GIS
 const KAZAN_REGION_ID = 32;
 
-// Category mapping for 2GIS search
-export const TWOGIS_CATEGORIES = {
-  RESTAURANT: {
-    name: 'Рестораны',
-    searchTerms: ['ресторан', 'кафе', 'бар', 'паб', 'кофейня'],
-    codes: ['restaurant', 'cafe', 'bar', 'pub', 'coffee_shop'],
-  },
-  CAFE: {
-    name: 'Кафе и кофейни',
-    searchTerms: ['кафе', 'кофейня', 'пекарня', 'кондитерская'],
-    codes: ['cafe', 'coffee_shop', 'bakery', 'confectionery'],
-  },
-  FAST_FOOD: {
-    name: 'Быстрое питание',
-    searchTerms: ['фастфуд', 'бургер', 'пицца', 'суши'],
-    codes: ['fast_food', 'pizza', 'sushi'],
-  },
-  BEAUTY: {
-    name: 'Салоны красоты',
-    searchTerms: ['салон красоты', 'парикмахерская', 'барбершоп'],
-    codes: ['beauty_salon', 'hairdresser', 'barbershop'],
-  },
-  SPA: {
-    name: 'СПА и массаж',
-    searchTerms: ['спа', 'массаж', 'салон красоты'],
-    codes: ['spa', 'massage', 'beauty_salon'],
-  },
-  VET: {
-    name: 'Ветклиники и зоосалоны',
-    searchTerms: ['ветклиника', 'зооклиника', 'зоосалон', 'груминг'],
-    codes: ['veterinary_clinic', 'pet_grooming', 'pet_services'],
-  },
-  FITNESS: {
-    name: 'Фитнес и спорт',
-    searchTerms: ['фитнес', 'спортзал', 'тренажерный зал', 'бассейн'],
-    codes: ['fitness_center', 'gym', 'swimming_pool', 'sports_complex'],
-  },
-  HOTEL: {
-    name: 'Отели',
-    searchTerms: ['отель', 'гостиница', 'хостел'],
-    codes: ['hotel', 'hostel', 'guest_house'],
-  },
-  SHOP: {
-    name: 'Магазины',
-    searchTerms: ['магазин', 'супермаркет', 'торговый центр'],
-    codes: ['shop', 'supermarket', 'mall', 'shopping_center'],
-  },
-  MALL: {
-    name: 'Торговые центры',
-    searchTerms: ['тц', 'торговый центр', 'молл'],
-    codes: ['mall', 'shopping_center'],
-  },
-  AUTO: {
-    name: 'Автоуслуги',
-    searchTerms: ['автосервис', 'автомойка', 'шиномонтаж', 'сто'],
-    codes: ['car_service', 'car_wash', 'tire_service'],
-  },
-  PHARMACY: {
-    name: 'Аптеки',
-    searchTerms: ['аптека'],
-    codes: ['pharmacy'],
-  },
-  BANK: {
-    name: 'Банки',
-    searchTerms: ['банк', 'банкомат', 'отделение банка'],
-    codes: ['bank', 'atm'],
-  },
+// Search categories for 2GIS
+export const SEARCH_QUERIES = {
+  RESTAURANT: [
+    'ресторан',
+    'кафе',
+    'бар',
+    'паб',
+    'кофейня',
+    'стейкхаус',
+    'итальянский ресторан',
+    'японский ресторан',
+    'грузинский ресторан',
+  ],
+  CAFE: [
+    'кафе',
+    'кофейня',
+    'пекарня',
+    'кондитерская',
+    'чайная',
+  ],
+  BAR: [
+    'бар',
+    'паб',
+    'винотека',
+    'спикизи',
+    'крафт бар',
+  ],
+  FAST_FOOD: [
+    'фастфуд',
+    'бургерная',
+    'пиццерия',
+    'суши',
+    'шаурма',
+    'шаверма',
+  ],
+  BEAUTY: [
+    'салон красоты',
+    'парикмахерская',
+    'барбершоп',
+    'ногтевая студия',
+    'визажист',
+    'косметолог',
+    'перманентный макияж',
+    'бровист',
+  ],
+  SPA: [
+    'спа салон',
+    'массаж',
+    'массажный салон',
+  ],
+  VET: [
+    'ветеринарная клиника',
+    'ветклиника',
+    'зооклиника',
+    'зоосалон',
+    'груминг',
+    'ветеринарная станция',
+  ],
+  FITNESS: [
+    'фитнес клуб',
+    'спортзал',
+    'тренажерный зал',
+    'бассейн',
+    'йога студия',
+    'пилатес',
+    'кроссфит',
+  ],
+  HOTEL: [
+    'отель',
+    'гостиница',
+    'хостел',
+    'мини-отель',
+    'апарт-отель',
+  ],
+  SHOP: [
+    'магазин продуктов',
+    'супермаркет',
+    'продуктовый магазин',
+  ],
+  MALL: [
+    'торговый центр',
+    'тц ',
+    'молл',
+    'shopping center',
+  ],
+  AUTO_SERVICE: [
+    'автосервис',
+    'сто',
+    'автомастерская',
+    'авторемонт',
+    'шиномонтаж',
+    'автоэлектрик',
+  ],
+  CAR_WASH: [
+    'автомойка',
+    'мойка самообслуживания',
+    'детейлинг',
+  ],
+  PHARMACY: [
+    'аптека',
+    'аптечный пункт',
+  ],
+  HEALTH: [
+    'поликлиника',
+    'больница',
+    'медцентр',
+    'медицинский центр',
+    'стоматология',
+    'зубная клиника',
+  ],
 };
 
 /**
- * Search places in 2GIS
+ * Search places in 2GIS API
  */
 export async function search2GIS(
   query: string,
-  options: {
-    limit?: number;
-    offset?: number;
-    category?: string;
-    regionId?: number;
-  } = {}
-): Promise<TwoGISSearchResult> {
-  const { limit = 20, offset = 0, regionId = KAZAN_REGION_ID } = options;
-
-  // If no API key, return mock data or use alternative method
-  if (!TWOGIS_API_KEY) {
-    console.log('2GIS API key not configured, using alternative method');
-    return search2GISAlternative(query, limit);
-  }
-
+  page: number = 1,
+  pageSize: number = 50
+): Promise<{ places: TwoGISPlace[]; total: number; hasMore: boolean }> {
   try {
     const params = new URLSearchParams({
       q: query,
-      region_id: String(regionId),
-      page_size: String(limit),
-      page: String(Math.floor(offset / limit) + 1),
+      region_id: String(KAZAN_REGION_ID),
+      page_size: String(pageSize),
+      page: String(page),
       key: TWOGIS_API_KEY,
-      fields: 'items.point,items.address,items.contacts,items.schedule,items.rating,items.photos',
+      fields: 'items.point,items.address,items.contacts,items.schedule,items.rating,items.photos,items.rubrics',
+      sort: 'rating',
     });
 
-    const response = await fetch(`${TWOGIS_API_URL}/3.0/items?${params}`);
+    const response = await fetch(`${TWOGIS_API_URL}/3.0/items?${params}`, {
+      headers: {
+        'User-Agent': 'KazanPlacesBot/1.0',
+      },
+    });
 
     if (!response.ok) {
-      throw new Error(`2GIS API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`2GIS API error ${response.status}:`, errorText);
+      return { places: [], total: 0, hasMore: false };
     }
 
     const data = await response.json();
 
     if (data.meta?.code !== 200) {
-      throw new Error(`2GIS API error: ${data.meta?.error?.message || 'Unknown error'}`);
+      console.error('2GIS API error:', data.meta?.error);
+      return { places: [], total: 0, hasMore: false };
     }
 
-    const places: TwoGISPlace[] = (data.result?.items || []).map((item: any) => ({
+    const items = data.result?.items || [];
+    
+    const places: TwoGISPlace[] = items.map((item: any) => ({
       id: item.id,
       name: item.name,
       type: item.type,
@@ -173,18 +204,20 @@ export async function search2GIS(
       },
       schedule: item.schedule,
       rating: item.rating ? {
-        score: item.rating.score,
-        reviewsCount: item.rating.reviews_count,
+        score: item.rating.score || item.rating.value,
+        reviewsCount: item.rating.reviews_count || 0,
       } : undefined,
-      photos: item.photos || [],
-      categories: item Rubrics || [],
+      photos: item.photos?.map((p: any) => ({ url: p.url || p })) || [],
+      categories: [],
+      rubrics: item.rubrics?.map((r: any) => r.name) || [],
     }));
 
-    return {
-      places,
-      total: data.result?.total || 0,
-      hasMore: data.result?.total > offset + limit,
-    };
+    const total = data.result?.total || 0;
+    const hasMore = page * pageSize < total;
+
+    console.log(`2GIS search "${query}": ${places.length} items (page ${page}, total: ${total})`);
+
+    return { places, total, hasMore };
   } catch (error) {
     console.error('2GIS search error:', error);
     return { places: [], total: 0, hasMore: false };
@@ -192,173 +225,111 @@ export async function search2GIS(
 }
 
 /**
- * Alternative search using 2GIS web scraping (when no API key)
+ * Search all pages for a query
  */
-async function search2GISAlternative(
+export async function searchAllPages(
   query: string,
-  limit: number = 20
-): Promise<TwoGISSearchResult> {
-  try {
-    const searchUrl = `https://2gis.ru/kazan/search/${encodeURIComponent(query)}`;
-    
-    // Use web reader to get content
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
-    
-    const result = await zai.functions.invoke('page_reader', {
-      url: searchUrl,
-    });
-
-    if (!result?.data?.html) {
-      return { places: [], total: 0, hasMore: false };
-    }
-
-    // Parse places from HTML
-    const places = parse2GISHTML(result.data.html, query);
-
-    return {
-      places: places.slice(0, limit),
-      total: places.length,
-      hasMore: false,
-    };
-  } catch (error) {
-    console.error('2GIS alternative search error:', error);
-    return { places: [], total: 0, hasMore: false };
-  }
-}
-
-/**
- * Parse 2GIS HTML content
- */
-function parse2GISHTML(html: string, query: string): TwoGISPlace[] {
-  const places: TwoGISPlace[] = [];
-  
-  // Extract place data from HTML
-  // This is a basic parser - real implementation would need more robust parsing
-  
-  // Look for JSON data embedded in the page
-  const jsonDataMatch = html.match(/<script[^>]*>window\.__INITIAL_STATE__\s*=\s*({[\s\S]*?})<\/script>/);
-  
-  if (jsonDataMatch) {
-    try {
-      // Would need to parse the actual JSON structure
-      // For now, return empty array
-    } catch (e) {
-      // Ignore parse errors
-    }
-  }
-  
-  // Extract from meta tags or visible elements
-  const nameRegex = /<div[^>]*class="[^"]*firmName[^"]*"[^>]*>([^<]+)<\/div>/gi;
-  const addressRegex = /<div[^>]*class="[^"]*address[^"]*"[^>]*>([^<]+)<\/div>/gi;
-  
-  let nameMatch;
-  let addressMatch;
-  
-  const names: string[] = [];
-  const addresses: string[] = [];
-  
-  while ((nameMatch = nameRegex.exec(html)) !== null) {
-    names.push(nameMatch[1].trim());
-  }
-  
-  while ((addressMatch = addressRegex.exec(html)) !== null) {
-    addresses.push(addressMatch[1].trim());
-  }
-  
-  // Combine into places
-  const minLen = Math.min(names.length, addresses.length);
-  for (let i = 0; i < minLen; i++) {
-    if (names[i] && names[i].length > 2) {
-      places.push({
-        id: `twogis_${i}_${Date.now()}`,
-        name: names[i],
-        type: 'unknown',
-        address: addresses[i],
-      });
-    }
-  }
-  
-  return places;
-}
-
-/**
- * Search places by category
- */
-export async function searchByCategory(
-  category: keyof typeof TWOGIS_CATEGORIES,
-  limit: number = 50
-): Promise<TwoGISPlace[]> {
-  const categoryData = TWOGIS_CATEGORIES[category];
-  if (!categoryData) {
-    throw new Error(`Unknown category: ${category}`);
-  }
-
-  const allPlaces: TwoGISPlace[] = [];
-  const seen = new Set<string>();
-
-  for (const term of categoryData.searchTerms) {
-    const query = `${term} Казань`;
-    const result = await search2GIS(query, { limit: Math.ceil(limit / categoryData.searchTerms.length) });
-    
-    for (const place of result.places) {
-      if (!seen.has(place.id)) {
-        seen.add(place.id);
-        allPlaces.push({
-          ...place,
-          categories: [categoryData.name, ...(place.categories || [])],
-        });
-      }
-    }
-    
-    // Rate limiting
-    await new Promise(resolve => setTimeout(resolve, 300));
-  }
-
-  return allPlaces.slice(0, limit);
-}
-
-/**
- * Import all places from all categories
- */
-export async function importAllFrom2GIS(
-  placesPerCategory: number = 30
+  maxPages: number = 10
 ): Promise<TwoGISPlace[]> {
   const allPlaces: TwoGISPlace[] = [];
-  const seen = new Set<string>();
-
-  for (const [categoryKey] of Object.entries(TWOGIS_CATEGORIES)) {
-    console.log(`Importing ${categoryKey}...`);
+  let page = 1;
+  
+  while (page <= maxPages) {
+    const { places, total, hasMore } = await search2GIS(query, page, 50);
     
-    const places = await searchByCategory(categoryKey as keyof typeof TWOGIS_CATEGORIES, placesPerCategory);
+    if (places.length === 0) break;
     
-    for (const place of places) {
-      const key = `${place.name}_${place.address}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        allPlaces.push(place);
-      }
-    }
+    allPlaces.push(...places);
+    
+    if (!hasMore) break;
+    
+    page++;
+    
+    // Small delay to avoid rate limiting
+    await new Promise(resolve => setTimeout(resolve, 200));
   }
-
-  console.log(`Total places imported: ${allPlaces.length}`);
+  
   return allPlaces;
 }
 
 /**
- * Get available categories
+ * Map rubric to our category
  */
-export function get2GISCategories() {
-  return Object.entries(TWOGIS_CATEGORIES).map(([key, data]) => ({
-    id: key,
-    name: data.name,
-    searchTerms: data.searchTerms,
-  }));
+export function mapRubricToCategory(rubrics: string[], query: string): string {
+  const rubricText = (rubrics || []).join(' ').toLowerCase();
+  const queryLower = query.toLowerCase();
+  
+  // Direct mappings
+  if (rubricText.includes('ресторан') || queryLower.includes('ресторан')) return 'RESTAURANT';
+  if (rubricText.includes('кафе') || queryLower.includes('кафе')) return 'CAFE';
+  if (rubricText.includes('бар') || rubricText.includes('паб') || queryLower.includes('бар')) return 'BAR';
+  if (rubricText.includes('кофейня') || rubricText.includes('пекарня')) return 'CAFE';
+  if (rubricText.includes('фастфуд') || rubricText.includes('бургер') || rubricText.includes('пицца')) return 'FAST_FOOD';
+  if (rubricText.includes('суши') || rubricText.includes('япон')) return 'FAST_FOOD';
+  if (rubricText.includes('салон красоты') || rubricText.includes('парикмахерская')) return 'BEAUTY';
+  if (rubricText.includes('барбершоп')) return 'BEAUTY';
+  if (rubricText.includes('ногтевая') || rubricText.includes('маникюр')) return 'BEAUTY';
+  if (rubricText.includes('массаж') || rubricText.includes('спа')) return 'BEAUTY';
+  if (rubricText.includes('косметолог') || rubricText.includes('визаж')) return 'BEAUTY';
+  if (rubricText.includes('ветеринар') || rubricText.includes('зоо')) return 'SERVICE';
+  if (rubricText.includes('фитнес') || rubricText.includes('спортзал') || rubricText.includes('тренажер')) return 'FITNESS';
+  if (rubricText.includes('бассейн')) return 'FITNESS';
+  if (rubricText.includes('йога') || rubricText.includes('пилатес')) return 'FITNESS';
+  if (rubricText.includes('отель') || rubricText.includes('гостиница') || rubricText.includes('хостел')) return 'HOTEL';
+  if (rubricText.includes('торговый центр') || rubricText.includes('тц') || rubricText.includes('молл')) return 'MALL';
+  if (rubricText.includes('аптек')) return 'HEALTH';
+  if (rubricText.includes('стоматолог') || rubricText.includes('зубн')) return 'HEALTH';
+  if (rubricText.includes('медцентр') || rubricText.includes('поликлиник') || rubricText.includes('больниц')) return 'HEALTH';
+  if (rubricText.includes('автосервис') || rubricText.includes('сто') || rubricText.includes('автомастерск')) return 'SERVICE';
+  if (rubricText.includes('автомойка') || rubricText.includes('мойка')) return 'SERVICE';
+  if (rubricText.includes('шиномонтаж')) return 'SERVICE';
+  if (rubricText.includes('супермаркет') || rubricText.includes('магазин продукт')) return 'SHOP';
+  
+  // Default based on query
+  if (queryLower.includes('ресторан')) return 'RESTAURANT';
+  if (queryLower.includes('кафе') return 'CAFE';
+  if (queryLower.includes('бар')) return 'BAR';
+  if (queryLower.includes('бьюти') || queryLower.includes('салон')) return 'BEAUTY';
+  if (queryLower.includes('мойк')) return 'SERVICE';
+  if (queryLower.includes('авто')) return 'SERVICE';
+  
+  return 'OTHER';
 }
 
 /**
- * Check if 2GIS API is configured
+ * Extract district from address
  */
-export function is2GISConfigured(): boolean {
-  return !!TWOGIS_API_KEY;
+export function extractDistrictFromAddress(address: string): string | null {
+  const districts = [
+    'Авиастроительный', 'Вахитовский', 'Кировский',
+    'Московский', 'Ново-Савиновский', 'Приволжский', 'Советский',
+  ];
+  
+  if (!address) return null;
+  
+  const addressLower = address.toLowerCase();
+  
+  for (const district of districts) {
+    if (addressLower.includes(district.toLowerCase())) {
+      return district;
+    }
+  }
+  
+  // Try to infer from street/area names
+  if (addressLower.includes('баумана') || addressLower.includes('университетска')) return 'Вахитовский';
+  if (addressLower.includes('проспект победы')) return 'Приволжский';
+  if (addressLower.includes('ямашева')) return 'Московский';
+  if (addressLower.includes('чуйкова') || addressLower.includes('линдора')) return 'Ново-Савиновский';
+  
+  return null;
+}
+
+/**
+ * Get API key status
+ */
+export function getAPIKeyStatus(): { configured: boolean; keyPreview: string } {
+  return {
+    configured: !!TWOGIS_API_KEY,
+    keyPreview: TWOGIS_API_KEY ? `${TWOGIS_API_KEY.slice(0, 8)}...${TWOGIS_API_KEY.slice(-4)}` : 'not set',
+  };
 }
