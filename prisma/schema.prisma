@@ -102,6 +102,15 @@ model Place {
   longitude     Float?
   description   String?
   
+  // Contact info
+  phone         String?
+  website       String?
+  imageUrl      String?
+  
+  // External IDs for imports
+  externalId    String?   @unique // ID from external source (2GIS, OSM, etc.)
+  source        String?   // Data source: openstreetmap, twogis, manual
+  
   // Calculated stats (updated on each review)
   rating        Float     @default(0)
   reviewCount   Int       @default(0)
@@ -123,6 +132,7 @@ model Place {
   @@index([category])
   @@index([district])
   @@index([rating])
+  @@index([externalId])
 }
 
 /// Photos of places (collected from reviews)

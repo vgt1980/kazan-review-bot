@@ -5,7 +5,14 @@ import {
   generatePostFromRSSItem,
   RSS_SOURCES,
   RSSItem,
+  getRSSSources,
+  getNewsSourcesToScrape,
 } from '@/lib/rss/parser';
+import {
+  scrapeAllSources,
+  fetchArticleContent,
+  getScrapeSources,
+} from '@/lib/rss/kazan-news-scraper';
 import { sendPhotoToChannel, sendMessageToChannel } from '@/lib/auto-poster/telegram-poster';
 import ZAI from 'z-ai-web-dev-sdk';
 
@@ -21,7 +28,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const maxItems = parseInt(searchParams.get('max') || '15');
     const source = searchParams.get('source');
+    const includeScraped = searchParams.get('scrape') === 'true';
 
+    // If specific source requested
     if (source) {
       const feed = await parseRSSFeed(source);
       if (!feed) {
@@ -30,13 +39,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ source: feed.title, items: feed.items.slice(0, maxItems) });
     }
 
-    const items = await fetchKazanPlaceNews(maxItems);
+    // Fetch from RSS sources
+    const rssItems = await fetchKazanPlaceNews(maxItems);
+
+    // Optionally include scraped news
+    let scrapedItems: any[] = [];
+    if (includeScraped) {
+      scrapedItems = await scrapeAllSources(10);
+    }
+
+    // Combine and sort by date
+    const allItems = [...rssItems, ...scrapedItems]
+      .sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
+      .slice(0, maxItems);
 
     return NextResponse.json({
       success: true,
-      count: items.length,
-      sources: RSS_SOURCES.map(s => s.name),
-      items,
+      count: allItems.length,
+      sources: {
+        rss: RSS_SOURCES.map(s => s.name),
+        scraped: getScrapeSources().map(s => s.name),
+      },
+      items: allItems,
     });
   } catch (error) {
     console.error('RSS API error:', error);
@@ -45,14 +69,14 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST - Publish RSS item to Telegram channel
+ * POST - Various RSS operations
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, item, generateImage, telegramId } = body;
+    const { action, item, generateImage, telegramId, url } = body;
 
-    // Verify admin
+    // Verify admin for write operations
     const envAdminIds = (process.env.ADMIN_IDS || '').split(',').map(id => id.trim()).filter(id => id);
     const allAdminIds = [...new Set([...ADMIN_IDS, ...envAdminIds])];
     
@@ -60,18 +84,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
+    // Fetch news from all sources
     if (action === 'fetch') {
-      const items = await fetchKazanPlaceNews(20);
-      return NextResponse.json({ success: true, count: items.length, items });
+      const rssItems = await fetchKazanPlaceNews(20);
+      const scrapedItems = await scrapeAllSources(10);
+      
+      const allItems = [...rssItems, ...scrapedItems]
+        .sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime());
+
+      return NextResponse.json({ 
+        success: true, 
+        count: allItems.length, 
+        items: allItems 
+      });
     }
 
+    // Scrape news from web sources
+    if (action === 'scrape') {
+      const items = await scrapeAllSources(20);
+      return NextResponse.json({
+        success: true,
+        count: items.length,
+        items,
+        sources: getScrapeSources().map(s => s.name),
+      });
+    }
+
+    // Fetch full article content
+    if (action === 'fetch_article' && url) {
+      const article = await fetchArticleContent(url);
+      if (!article) {
+        return NextResponse.json({ error: 'Failed to fetch article' }, { status: 500 });
+      }
+      return NextResponse.json({ success: true, article });
+    }
+
+    // Get available sources
+    if (action === 'sources') {
+      return NextResponse.json({
+        rss: getRSSSources(),
+        scraped: getNewsSourcesToScrape(),
+      });
+    }
+
+    // Publish item to Telegram channel
     if (action === 'publish' && item) {
       const rssItem: RSSItem = item;
       const caption = generatePostFromRSSItem(rssItem);
 
       let success = false;
 
-      // Generate image if requested or use existing
+      // Generate image if requested
       let imageBase64 = null;
       
       if (generateImage) {
@@ -90,10 +153,10 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Try to use existing image
       if (imageBase64) {
         success = await sendPhotoToChannel(imageBase64, caption);
       } else if (rssItem.imageUrl) {
-        // Try to use existing image from RSS
         try {
           const imgResponse = await fetch(rssItem.imageUrl);
           if (imgResponse.ok) {
@@ -116,6 +179,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Publish latest news automatically
     if (action === 'publish_latest') {
       const items = await fetchKazanPlaceNews(5);
 
@@ -126,7 +190,6 @@ export async function POST(request: NextRequest) {
       const topItem = items[0];
       const caption = generatePostFromRSSItem(topItem);
 
-      // Try to get image
       let imageBase64 = null;
       if (topItem.imageUrl) {
         try {
@@ -156,7 +219,9 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use: fetch, publish, publish_latest' }, { status: 400 });
+    return NextResponse.json({ 
+      error: 'Invalid action. Use: fetch, scrape, fetch_article, sources, publish, publish_latest' 
+    }, { status: 400 });
   } catch (error) {
     console.error('RSS POST error:', error);
     return NextResponse.json({ error: 'Failed to process request' }, { status: 500 });
