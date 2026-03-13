@@ -14,68 +14,37 @@ const CATEGORIES = [
   { value: 'OTHER', label: '📦 Другое' },
 ];
 
-const DISTRICTS = [
-  'Авиастроительный', 'Вахитовский', 'Кировский',
-  'Московский', 'Ново-Савиновский', 'Приволжский', 'Советский',
-];
-
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const action = searchParams.get('action');
-
-    if (action === 'search') {
-      const q = searchParams.get('q') || '';
-      const category = searchParams.get('category');
-
-      if (q.length < 2) {
-        return NextResponse.json({ places: [], total: 0 });
-      }
-
-      const where: any = {
-        name: { contains: q, mode: 'insensitive' },
-      };
-      if (category) where.category = category;
-
-      const places = await db.place.findMany({
-        where,
-        take: 20,
-        orderBy: { rating: 'desc' },
-      });
-
-      return NextResponse.json({ places, total: places.length });
-    }
-
-    // Get counts
+    // Simple count - without groupBy
     const total = await db.place.count();
     
-    const categoryCounts = await db.place.groupBy({
-      by: ['category'],
-      _count: { id: true },
+    // Count by category manually
+    const allPlaces = await db.place.findMany({
+      select: { category: true, district: true }
     });
-
-    const districtCounts = await db.place.groupBy({
-      by: ['district'],
-      _count: { id: true },
-    });
-
-    const categoryMap = Object.fromEntries(
-      categoryCounts.map(c => [c.category, c._count.id])
-    );
-
-    const districtMap = Object.fromEntries(
-      districtCounts.filter(d => d.district).map(d => [d.district, d._count.id])
-    );
+    
+    const categoryCount: Record<string, number> = {};
+    const districtCount: Record<string, number> = {};
+    
+    for (const p of allPlaces) {
+      if (p.category) {
+        categoryCount[p.category] = (categoryCount[p.category] || 0) + 1;
+      }
+      if (p.district) {
+        districtCount[p.district] = (districtCount[p.district] || 0) + 1;
+      }
+    }
 
     return NextResponse.json({
       categories: CATEGORIES.map(c => ({
         ...c,
-        count: categoryMap[c.value] || 0,
+        count: categoryCount[c.value] || 0,
       })).sort((a, b) => b.count - a.count),
-      districts: DISTRICTS.map(d => ({
-        value: d,
-        label: d,
-        count: districtMap[d] || 0,
+      districts: Object.entries(districtCount).map(([value, count]) => ({
+        value,
+        label: value,
+        count,
       })).sort((a, b) => b.count - a.count),
       totalPlaces: total,
     });
