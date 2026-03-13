@@ -1,6 +1,6 @@
 /**
- * RSS Parser for Kazan news and places
- * Fetches and filters news about restaurants, cafes, and places in Kazan
+ * RSS Parser for Kazan places and establishments news
+ * Fetches and filters news about restaurants, cafes, hotels, and places in Kazan
  */
 
 export interface RSSItem {
@@ -10,6 +10,7 @@ export interface RSSItem {
   pubDate: string;
   source: string;
   imageUrl?: string;
+  category?: string;
 }
 
 export interface RSSFeed {
@@ -18,43 +19,73 @@ export interface RSSFeed {
   items: RSSItem[];
 }
 
-// RSS sources for Kazan and Tatarstan news
+// RSS sources for Kazan and Tatarstan places/establishments
 export const RSS_SOURCES = [
-  {
-    name: 'Lenta.ru',
-    url: 'https://lenta.ru/rss',
-    filter: ['казан', 'казань', 'татарстан', 'кафе', 'ресторан'],
-  },
   {
     name: 'Tatar-Inform',
     url: 'https://www.tatar-inform.ru/rss',
-    filter: ['кафе', 'ресторан', 'заведени', 'гастроном', 'пищ', 'еда'],
+    category: 'general',
+  },
+  {
+    name: 'Бизнес-Онлайн (Казань)',
+    url: 'https://www.business-gazeta.ru/rss.xml',
+    category: 'business',
+  },
+  {
+    name: 'Казанские ведомости',
+    url: 'https://kvnews.ru/rss.xml',
+    category: 'news',
+  },
+  {
+    name: 'Lenta.ru',
+    url: 'https://lenta.ru/rss',
+    category: 'general',
+  },
+  {
+    name: 'RT на русском',
+    url: 'https://russian.rt.com/rss',
+    category: 'general',
   },
 ];
 
-// Keywords related to places and food
+// Keywords related to places, establishments, food, entertainment
 const PLACE_KEYWORDS = [
-  'ресторан',
-  'кафе',
-  'бар',
-  'кофейня',
-  'пиццерия',
-  'суши',
-  'бургер',
-  'стейк',
-  'гастроном',
-  'заведение',
-  'питание',
-  'еда',
-  'кухня',
-  'меню',
-  'шеф-повар',
-  'открыл',
-  'открытие',
-  'закрыл',
-  'закрытие',
-  'казан',
-  'казань',
+  // Food & Dining
+  'ресторан', 'кафе', 'бар', 'кофейня', 'пиццерия', 'суши', 'бургер',
+  'стейк', 'гастроном', 'заведение', 'питание', 'еда', 'кухня', 'меню',
+  'шеф-повар', 'бистро', 'трактир', 'столовая', 'фастфуд',
+  
+  // Hotels & Accommodation
+  'отель', 'гостиница', 'хостел', 'апартамент', 'номер',
+  
+  // Entertainment
+  'клуб', 'кинотеатр', 'театр', 'музей', 'выставка', 'концерт',
+  'развлечение', 'досуг', 'аквапарк', 'парк',
+  
+  // Beauty & Health
+  'салон красоты', 'спа', 'барбершоп', 'парикмахерская', 'массаж',
+  'фитнес', 'спортзал', 'бассейн',
+  
+  // Shopping
+  'торговый центр', 'тц ', 'магазин', 'супермаркет', 'молл',
+  'аутлет', 'маркетплейс',
+  
+  // Services
+  'сервис', 'услуга', 'ремонт', 'автосервис', 'автомойка',
+  
+  // Actions
+  'открыл', 'открытие', 'открылась', 'открылся', 'запуск',
+  'новый', 'новая', 'новое', 'обновлен',
+  
+  // Location
+  'казан', 'казань', 'татарстан',
+];
+
+// Keywords to exclude
+const EXCLUDE_KEYWORDS = [
+  'война', 'сво', 'украин', 'ракет', 'обстрел', 'взрыв',
+  'убийств', 'преступлен', 'суд', 'приговор',
+  'политик', 'депутат', 'выборы', 'парти',
 ];
 
 /**
@@ -64,7 +95,7 @@ export async function parseRSSFeed(url: string): Promise<RSSFeed | null> {
   try {
     const response = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; KazanReviewBot/1.0)',
+        'User-Agent': 'Mozilla/5.0 (compatible; KazanPlacesBot/1.0)',
         'Accept': 'application/rss+xml, application/xml, text/xml',
       },
     });
@@ -88,14 +119,12 @@ export async function parseRSSFeed(url: string): Promise<RSSFeed | null> {
 function parseRSSContent(xml: string): RSSFeed {
   const items: RSSItem[] = [];
 
-  // Extract channel info
-  const channelTitleMatch = xml.match(/<channel>[\s\S]*?<title>(.*?)<\/title>/);
-  const channelLinkMatch = xml.match(/<channel>[\s\S]*?<link>(.*?)<\/link>/);
+  const channelTitleMatch = xml.match(/<channel>[\s\S]*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/);
+  const channelLinkMatch = xml.match(/<channel>[\s\S]*?<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/link>/);
 
   const feedTitle = channelTitleMatch?.[1]?.trim() || 'RSS Feed';
   const feedLink = channelLinkMatch?.[1]?.trim() || '';
 
-  // Extract items - use RegExp exec instead of matchAll for compatibility
   const itemRegex = /<item>([\s\S]*?)<\/item>/g;
   let match;
   
@@ -106,7 +135,18 @@ function parseRSSContent(xml: string): RSSFeed {
     const linkMatch = itemXml.match(/<link>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/link>/);
     const descMatch = itemXml.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
     const dateMatch = itemXml.match(/<pubDate>(.*?)<\/pubDate>/);
-    const imageMatch = itemXml.match(/<enclosure[^>]*url="(.*?)"/);
+    
+    // Try different image formats
+    let imageUrl = '';
+    const imageMatch = itemXml.match(/<enclosure[^>]*url="(.*?)"/) ||
+                       itemXml.match(/<media:content[^>]*url="(.*?)"/) ||
+                       itemXml.match(/<media:thumbnail[^>]*url="(.*?)"/);
+    
+    if (imageMatch) {
+      imageUrl = imageMatch[1];
+    }
+    
+    const categoryMatch = itemXml.match(/<category>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/category>/);
 
     if (titleMatch && linkMatch) {
       items.push({
@@ -115,16 +155,13 @@ function parseRSSContent(xml: string): RSSFeed {
         description: descMatch ? decodeHTMLEntities(descMatch[1].trim()) : '',
         pubDate: dateMatch?.[1] || new Date().toISOString(),
         source: feedTitle,
-        imageUrl: imageMatch?.[1],
+        imageUrl,
+        category: categoryMatch?.[1]?.trim(),
       });
     }
   }
 
-  return {
-    title: feedTitle,
-    link: feedLink,
-    items,
-  };
+  return { title: feedTitle, link: feedLink, items };
 }
 
 /**
@@ -138,6 +175,8 @@ function decodeHTMLEntities(text: string): string {
     '&quot;': '"',
     '&apos;': "'",
     '&nbsp;': ' ',
+    '&#39;': "'",
+    '&#34;': '"',
   };
 
   let decoded = text;
@@ -145,27 +184,55 @@ function decodeHTMLEntities(text: string): string {
     decoded = decoded.replace(new RegExp(entity, 'g'), char);
   }
 
-  // Remove CDATA markers if any
   decoded = decoded.replace(/<!\[CDATA\[|\]\]>/g, '');
+  decoded = decoded.replace(/<[^>]*>/g, ''); // Remove HTML tags
 
   return decoded.trim();
 }
 
 /**
- * Check if item is related to places/food in Kazan
+ * Check if item is related to places/establishments in Kazan
  */
 export function isPlaceRelated(item: RSSItem): boolean {
   const textToCheck = `${item.title} ${item.description}`.toLowerCase();
 
-  // Check for Kazan keyword first
-  const hasKazan = textToCheck.includes('казан') || textToCheck.includes('казань');
+  // Check for exclusion keywords first
+  const hasExcluded = EXCLUDE_KEYWORDS.some(keyword =>
+    textToCheck.includes(keyword.toLowerCase())
+  );
+  
+  if (hasExcluded) return false;
 
   // Check for place keywords
   const hasPlaceKeyword = PLACE_KEYWORDS.some(keyword =>
     textToCheck.includes(keyword.toLowerCase())
   );
 
-  return hasKazan || hasPlaceKeyword;
+  // Prefer items with Kazan/Tatarstan
+  const hasKazan = textToCheck.includes('казан') || textToCheck.includes('казань') || textToCheck.includes('татарстан');
+
+  return hasPlaceKeyword || hasKazan;
+}
+
+/**
+ * Fetch all RSS items (raw)
+ */
+export async function fetchAllRSSItems(maxPerSource: number = 20): Promise<RSSItem[]> {
+  const allItems: RSSItem[] = [];
+
+  for (const source of RSS_SOURCES) {
+    try {
+      const feed = await parseRSSFeed(source.url);
+
+      if (feed) {
+        allItems.push(...feed.items.slice(0, maxPerSource));
+      }
+    } catch (error) {
+      console.error(`Error fetching from ${source.name}:`, error);
+    }
+  }
+
+  return allItems;
 }
 
 /**
@@ -179,10 +246,7 @@ export async function fetchKazanPlaceNews(maxItems: number = 10): Promise<RSSIte
       const feed = await parseRSSFeed(source.url);
 
       if (feed) {
-        const filteredItems = feed.items
-          .filter(isPlaceRelated)
-          .slice(0, maxItems);
-
+        const filteredItems = feed.items.filter(isPlaceRelated);
         allItems.push(...filteredItems);
       }
     } catch (error) {
@@ -208,30 +272,34 @@ export async function fetchKazanPlaceNews(maxItems: number = 10): Promise<RSSIte
  * Generate Telegram post from RSS item
  */
 export function generatePostFromRSSItem(item: RSSItem): string {
-  const maxLen = 900; // Telegram caption limit with reserve
+  const maxLen = 950; // Telegram caption limit with reserve
 
   let post = `<b>📰 ${escapeHtml(item.title)}</b>\n\n`;
 
   if (item.description) {
-    // Clean description
-    let desc = item.description
-      .replace(/<[^>]*>/g, '') // Remove HTML tags
-      .trim();
+    let desc = item.description.trim();
 
-    // Truncate if too long
-    if (desc.length > 400) {
-      desc = desc.substring(0, 400) + '...';
+    if (desc.length > 350) {
+      desc = desc.substring(0, 350) + '...';
     }
 
     post += `${escapeHtml(desc)}\n\n`;
   }
 
-  post += `🔗 <a href="${item.link}">Читать далее</a>\n`;
+  post += `🔗 <a href="${item.link}">Читать полностью</a>\n`;
   post += `📢 ${item.source}\n\n`;
-  post += `🤖 @Chest_Kazan_bot\n`;
-  post += `#Казань #Новости`;
+  post += `🤖 @Chest_Kazan_bot`;
 
-  // Ensure not too long
+  // Add relevant hashtags
+  const text = `${item.title} ${item.description}`.toLowerCase();
+  const tags: string[] = ['#Казань', '#Новости'];
+  
+  if (text.includes('ресторан') || text.includes('кафе')) tags.push('#Рестораны');
+  if (text.includes('отель') || text.includes('гостиниц')) tags.push('#Отели');
+  if (text.includes('открыл') || text.includes('открытие')) tags.push('#Открытие');
+  
+  post += '\n' + tags.join(' ');
+
   if (post.length > maxLen) {
     post = post.substring(0, maxLen - 50) + '...\n\n🤖 @Chest_Kazan_bot';
   }

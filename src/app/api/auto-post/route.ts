@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { publishPlacePost, publishTopPlacesDigest } from '@/lib/auto-poster/telegram-poster';
 
+// Admin IDs - hardcoded for reliability
+const ADMIN_IDS = ['1892592914'];
+
 // GET - Get auto-post settings and stats
 export async function GET() {
   try {
-    // Get stats
     const totalPlaces = await db.place.count();
     const placesWithReviews = await db.place.count({
       where: { reviewCount: { gt: 0 } },
     });
 
-    // Get places by category
     const placesByCategory = await db.place.groupBy({
       by: ['category'],
       _count: { id: true },
@@ -43,21 +44,60 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, placeId, category, telegramId } = body;
 
-    // Verify admin
-    const adminIds = (process.env.ADMIN_IDS || '').split(',');
+    // Verify admin - check both env and hardcoded
+    const envAdminIds = (process.env.ADMIN_IDS || '')
+      .split(',')
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+    
+    const allAdminIds = [...new Set([...ADMIN_IDS, ...envAdminIds])];
+    const isAdmin = telegramId && allAdminIds.includes(String(telegramId).trim());
 
-    if (!telegramId || !adminIds.includes(telegramId.toString())) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    if (!isAdmin) {
+      console.log('Unauthorized access attempt:', { telegramId, adminIds: allAdminIds });
+      return NextResponse.json({ error: 'Unauthorized', adminIds: allAdminIds, provided: telegramId }, { status: 403 });
+    }
+
+    console.log('Auto-post action:', action, 'by user:', telegramId);
+
+    if (action === 'random') {
+      // Post about random place
+      const places = await db.place.findMany({
+        where: { reviewCount: { gte: 1 }, rating: { gte: 5 } },
+        orderBy: { rating: 'desc' },
+        take: 10,
+      });
+
+      let placeToPost;
+      
+      if (places.length > 0) {
+        placeToPost = places[Math.floor(Math.random() * places.length)];
+      } else {
+        // Fallback: any place
+        placeToPost = await db.place.findFirst({ orderBy: { createdAt: 'desc' } });
+      }
+
+      if (!placeToPost) {
+        return NextResponse.json({ success: false, message: 'Заведений не найдено' }, { status: 404 });
+      }
+
+      const result = await publishPlacePost({
+        name: placeToPost.name,
+        category: placeToPost.category,
+        district: placeToPost.district,
+        address: placeToPost.address,
+        rating: placeToPost.rating,
+        reviewCount: placeToPost.reviewCount,
+      });
+
+      return NextResponse.json(result);
     }
 
     if (action === 'post_place' && placeId) {
-      // Post about specific place
-      const place = await db.place.findUnique({
-        where: { id: placeId },
-      });
+      const place = await db.place.findUnique({ where: { id: placeId } });
 
       if (!place) {
-        return NextResponse.json({ error: 'Place not found' }, { status: 404 });
+        return NextResponse.json({ success: false, message: 'Заведение не найдено' }, { status: 404 });
       }
 
       const result = await publishPlacePost({
@@ -73,12 +113,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'post_digest' && category) {
-      // Post category digest
       const places = await db.place.findMany({
-        where: {
-          category: category as any,
-          reviewCount: { gt: 0 },
-        },
+        where: { category: category as any, reviewCount: { gt: 0 } },
         orderBy: { rating: 'desc' },
         take: 10,
       });
@@ -91,6 +127,12 @@ export async function POST(request: NextRequest) {
         MALL: 'Торговые центры',
         SERVICE: 'Сервисы',
         OTHER: 'Другое',
+        HOTEL: 'Отели',
+        ENTERTAINMENT: 'Развлечения',
+        SPORT: 'Спорт',
+        EDUCATION: 'Образование',
+        HEALTH: 'Здоровье',
+        TRANSPORT: 'Транспорт',
       };
 
       const result = await publishTopPlacesDigest(
@@ -107,59 +149,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(result);
     }
 
-    if (action === 'post_random') {
-      // Post about random place with good rating
-      const places = await db.place.findMany({
-        where: {
-          reviewCount: { gte: 1 },
-          rating: { gte: 5 },
-        },
-        orderBy: { rating: 'desc' },
-        take: 10,
-      });
-
-      if (places.length === 0) {
-        // Pick any place
-        const anyPlace = await db.place.findFirst({
-          orderBy: { createdAt: 'desc' },
-        });
-
-        if (!anyPlace) {
-          return NextResponse.json({ error: 'No places found' }, { status: 404 });
-        }
-
-        const result = await publishPlacePost({
-          name: anyPlace.name,
-          category: anyPlace.category,
-          district: anyPlace.district,
-          address: anyPlace.address,
-          rating: anyPlace.rating,
-          reviewCount: anyPlace.reviewCount,
-        });
-
-        return NextResponse.json(result);
-      }
-
-      // Pick random from top 10
-      const randomPlace = places[Math.floor(Math.random() * places.length)];
-
-      const result = await publishPlacePost({
-        name: randomPlace.name,
-        category: randomPlace.category,
-        district: randomPlace.district,
-        address: randomPlace.address,
-        rating: randomPlace.rating,
-        reviewCount: randomPlace.reviewCount,
-      });
-
-      return NextResponse.json(result);
-    }
-
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid action. Use: random, post_place, post_digest' }, { status: 400 });
   } catch (error) {
     console.error('Error in auto-post:', error);
     return NextResponse.json(
-      { error: 'Failed to process request' },
+      { success: false, message: `Ошибка: ${error instanceof Error ? error.message : 'Unknown error'}` },
       { status: 500 }
     );
   }

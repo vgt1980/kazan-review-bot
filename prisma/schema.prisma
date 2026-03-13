@@ -76,10 +76,18 @@ model UserSession {
 enum Category {
   RESTAURANT
   CAFE
+  BAR
+  FAST_FOOD
+  HOTEL
   SHOP
   BEAUTY
   MALL
+  FITNESS
+  ENTERTAINMENT
   SERVICE
+  HEALTH
+  EDUCATION
+  TRANSPORT
   OTHER
 }
 
