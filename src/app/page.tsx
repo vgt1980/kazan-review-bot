@@ -83,7 +83,7 @@ interface RSSItem {
   imageUrl?: string
 }
 
-// Extended categories
+// Extended categories - matching Prisma schema
 const CATEGORIES: { key: Category; name: string; icon: string }[] = [
   { key: 'RESTAURANT', name: 'Рестораны', icon: '🍽️' },
   { key: 'CAFE', name: 'Кофейни', icon: '☕' },
@@ -98,6 +98,7 @@ const CATEGORIES: { key: Category; name: string; icon: string }[] = [
   { key: 'SERVICE', name: 'Услуги', icon: '🔧' },
   { key: 'HEALTH', name: 'Здоровье', icon: '🏥' },
   { key: 'EDUCATION', name: 'Образование', icon: '📚' },
+  { key: 'TRANSPORT', name: 'Транспорт', icon: '🚗' },
   { key: 'OTHER', name: 'Другое', icon: '📦' },
 ]
 
