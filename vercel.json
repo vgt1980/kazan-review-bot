@@ -1,0 +1,13 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "bun run build",
+  "installCommand": "bun install",
+  "devCommand": "bun run dev",
+  "regions": ["hel1"],
+  "env": {
+    "BOT_TOKEN": "@bot_token",
+    "CHANNEL_ID": "@channel_id",
+    "WEBAPP_URL": "@webapp_url",
+    "ADMIN_IDS": "@admin_ids"
+  }
+}

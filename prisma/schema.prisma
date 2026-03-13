@@ -1,0 +1,314 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER MANAGEMENT ====================
+
+/// Telegram users of the bot
+model User {
+  id              String   @id @default(cuid())
+  telegramId      String   @unique // Telegram user ID
+  username        String?  // @username
+  firstName       String?
+  lastName        String?
+  languageCode    String?
+  isBot           Boolean  @default(false)
+  isBlocked       Boolean  @default(false) // Blocked by admin
+  blockedAt       DateTime?
+  blockReason     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // User stats
+  reviewCount     Int      @default(0)
+  helpfulVotes    Int      @default(0) // Total upvotes received
+  
+  // User status: NOVICE, ACTIVE, EXPERT, TOP_REVIEWER
+  status          String   @default("NOVICE")
+  
+  // Relations
+  reviews         Review[]
+  votes           ReviewVote[]
+  complaints      Complaint[]
+  subscriptions   CategorySubscription[]
+  sessions        UserSession[]
+  adminInfo       AdminUser?
+  notifications   Notification[]
+
+  @@index([telegramId])
+  @@index([username])
+}
+
+/// Admin users with special permissions
+model AdminUser {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        String   @default("ADMIN") // ADMIN, SUPER_ADMIN
+  createdAt   DateTime @default(now())
+}
+
+/// Session storage for multi-step forms
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionData String   // JSON string with current form state
+  step        String   // Current step in the flow
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  expiresAt   DateTime?
+
+  @@index([userId])
+}
+
+// ==================== PLACES ====================
+
+/// Establishment categories
+enum Category {
+  RESTAURANT
+  CAFE
+  SHOP
+  BEAUTY
+  MALL
+  SERVICE
+  OTHER
+}
+
+/// Establishments/places
+model Place {
+  id            String    @id @default(cuid())
+  name          String
+  category      Category
+  district      String?   // Район
+  address       String?   // Full address
+  latitude      Float?
+  longitude     Float?
+  description   String?
+  
+  // Calculated stats (updated on each review)
+  rating        Float     @default(0)
+  reviewCount   Int       @default(0)
+  
+  // Detailed ratings (averages)
+  avgFood       Float     @default(0)
+  avgService    Float     @default(0)
+  avgAtmosphere Float     @default(0)
+  avgValue      Float     @default(0)
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  reviews       Review[]
+  photos        PlacePhoto[]
+  
+  @@index([name])
+  @@index([category])
+  @@index([district])
+  @@index([rating])
+}
+
+/// Photos of places (collected from reviews)
+model PlacePhoto {
+  id          String   @id @default(cuid())
+  placeId     String
+  place       Place    @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  fileId      String   // Telegram file_id
+  fromReview  String?  // Review ID that contributed this photo
+  isMain      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([placeId])
+}
+
+// ==================== REVIEWS ====================
+
+/// Review status
+enum ReviewStatus {
+  PENDING    // Awaiting moderation
+  APPROVED   // Published
+  REJECTED   // Rejected by admin
+  HIDDEN     // Hidden after publication
+}
+
+/// User reviews
+model Review {
+  id              String       @id @default(cuid())
+  placeId         String
+  place           Place        @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Ratings (1-10)
+  overallRating   Int          // Общая оценка
+  foodRating      Int?         // Еда/продукт
+  serviceRating   Int?         // Сервис
+  atmosphereRating Int?        // Атмосфера
+  valueRating     Int?         // Цена/качество
+  
+  // Review content
+  text            String       // Min 20 characters
+  
+  // Status
+  status          ReviewStatus @default(PENDING)
+  
+  // Moderation
+  moderatedBy     String?      // Admin user ID
+  moderatedAt     DateTime?
+  rejectionReason String?
+  editHistory     String?      // JSON with edit history
+  
+  // Stats
+  upvotes         Int          @default(0)
+  downvotes       Int          @default(0)
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  publishedAt     DateTime?    // When approved and published
+  
+  // Relations
+  photos          ReviewPhoto[]
+  votes           ReviewVote[]
+  complaints      Complaint[]
+  
+  @@unique([placeId, userId]) // One review per user per place
+  @@index([placeId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// Review photos
+model ReviewPhoto {
+  id          String   @id @default(cuid())
+  reviewId    String
+  review      Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  fileId      String   // Telegram file_id
+  type        String   @default("place") // place, receipt
+  createdAt   DateTime @default(now())
+
+  @@index([reviewId])
+}
+
+/// Votes on reviews
+model ReviewVote {
+  id          String   @id @default(cuid())
+  reviewId    String
+  review      Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voteType    String   // "up" or "down"
+  createdAt   DateTime @default(now())
+
+  @@unique([reviewId, userId]) // One vote per user per review
+  @@index([reviewId])
+}
+
+// ==================== COMPLAINTS ====================
+
+/// Complaint status
+enum ComplaintStatus {
+  PENDING
+  REVIEWED
+  RESOLVED
+  DISMISSED
+}
+
+/// Complaint reasons
+enum ComplaintReason {
+  FALSE_INFO
+  INSULTS
+  ADVERTISING
+  OTHER
+}
+
+/// User complaints about reviews
+model Complaint {
+  id          String          @id @default(cuid())
+  reviewId    String
+  review      Review          @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason      ComplaintReason
+  comment     String?
+  status      ComplaintStatus @default(PENDING)
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@index([reviewId])
+  @@index([status])
+}
+
+// ==================== SUBSCRIPTIONS ====================
+
+/// User subscriptions to categories
+model CategorySubscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, category])
+  @@index([userId])
+  @@index([category])
+}
+
+// ==================== NOTIFICATIONS ====================
+
+/// User notifications
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // NEW_REVIEW, REVIEW_APPROVED, REVIEW_REJECTED, etc.
+  title       String
+  content     String
+  data        String?  // JSON with additional data
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// ==================== BOT SETTINGS ====================
+
+/// Bot configuration
+model BotSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  updatedAt   DateTime @updatedAt
+}
+
+/// Admin broadcast messages
+model Broadcast {
+  id          String   @id @default(cuid())
+  adminId     String
+  title       String
+  content     String
+  status      String   @default("DRAFT") // DRAFT, SENDING, SENT, CANCELLED
+  sentCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  sentAt      DateTime?
+}
+
+/// Rate limiting
+model RateLimit {
+  id          String   @id @default(cuid())
+  key         String   @unique // user_id:action_type
+  count       Int      @default(1)
+  windowStart DateTime @default(now())
+  expiresAt   DateTime
+}
