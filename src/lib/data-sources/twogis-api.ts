@@ -289,7 +289,7 @@ export function mapRubricToCategory(rubrics: string[], query: string): string {
   
   // Default based on query
   if (queryLower.includes('ресторан')) return 'RESTAURANT';
-  if (queryLower.includes('кафе') return 'CAFE';
+  if (queryLower.includes('кафе')) return 'CAFE';
   if (queryLower.includes('бар')) return 'BAR';
   if (queryLower.includes('бьюти') || queryLower.includes('салон')) return 'BEAUTY';
   if (queryLower.includes('мойк')) return 'SERVICE';
