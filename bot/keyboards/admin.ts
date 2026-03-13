@@ -239,8 +239,19 @@ export function getAutoPostMenuKeyboard(): InlineKeyboard {
     .text('🛍 Магазины', 'autopost_cat_SHOP')
     .text('💅 Бьюти', 'autopost_cat_BEAUTY')
     .row()
+    .text('📰 RSS новости', 'autopost_rss')
     .text('⚙️ Настройки', 'autopost_settings')
+    .row()
     .text('🔙 Меню', 'admin_menu');
+}
+
+// RSS news menu keyboard
+export function getRSSMenuKeyboard(itemsCount: number = 0): InlineKeyboard {
+  return new InlineKeyboard()
+    .text('🔄 Загрузить новости', 'rss_fetch')
+    .text('📢 Опубликовать свежую', 'rss_publish_latest')
+    .row()
+    .text('🔙 Назад', 'admin_autopost');
 }
 
 // Import menu keyboard

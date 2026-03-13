@@ -2,6 +2,7 @@ import { BotContext } from '../context';
 import { InlineKeyboard } from 'grammy';
 import prisma from '../../src/lib/db';
 import { generatePlaceImage, generatePostContent, sendPhotoToChannel, sendMessageToChannel } from '../../src/lib/auto-poster/telegram-poster';
+import { fetchKazanPlaceNews, generatePostFromRSSItem, RSSItem } from '../../src/lib/rss/parser';
 
 const CHANNEL_ID = process.env.CHANNEL_ID || '-1003809470742';
 
@@ -50,8 +51,150 @@ export async function showAutoPostMenu(ctx: BotContext): Promise<void> {
       .text('🛍 Магазины', 'autopost_cat_SHOP')
       .text('💅 Бьюти', 'autopost_cat_BEAUTY')
       .row()
+      .text('📰 RSS новости', 'autopost_rss')
+      .row()
       .text('🔙 Меню', 'admin_menu'),
   });
+}
+
+// Show RSS news menu
+export async function showRSSMenu(ctx: BotContext): Promise<void> {
+  if (!await isAdmin(ctx)) {
+    await ctx.reply('⛔ У вас нет доступа к этой функции.');
+    return;
+  }
+
+  const message = `
+📰 <b>RSS новости Казани</b>
+
+Загрузите новости о заведениях Казани из RSS-лент:
+• Lenta.ru
+• Tatar-Inform
+
+Новости автоматически фильтруются по ключевым словам (рестораны, кафе, еда и т.д.)
+  `.trim();
+
+  await ctx.reply(message, {
+    parse_mode: 'HTML',
+    reply_markup: new InlineKeyboard()
+      .text('🔄 Загрузить новости', 'rss_fetch')
+      .text('📢 Опубликовать свежую', 'rss_publish_latest')
+      .row()
+      .text('🔙 Назад', 'admin_autopost'),
+  });
+}
+
+// Fetch and show RSS news
+export async function handleRSSFetch(ctx: BotContext): Promise<void> {
+  if (!await isAdmin(ctx)) return;
+
+  await ctx.answerCallbackQuery('⏳ Загружаю новости...');
+  await ctx.reply('⏳ Загружаю новости из RSS-лент...');
+
+  try {
+    const items = await fetchKazanPlaceNews(10);
+
+    if (items.length === 0) {
+      await ctx.reply('❌ Не найдено новостей о заведениях Казани.');
+      return;
+    }
+
+    await ctx.reply(`📰 <b>Найдено ${items.length} новостей:</b>`, { parse_mode: 'HTML' });
+
+    // Show first 5 news items
+    for (let i = 0; i < Math.min(5, items.length); i++) {
+      const item = items[i];
+      const message = `
+<b>${i + 1}. ${escapeHtml(item.title)}</b>
+${item.description ? escapeHtml(item.description.substring(0, 200)) + '...' : ''}
+📢 ${item.source}
+      `.trim();
+
+      await ctx.reply(message, {
+        parse_mode: 'HTML',
+        reply_markup: new InlineKeyboard()
+          .text('📢 Опубликовать', `rss_publish_${i}`)
+          .row(),
+      });
+    }
+
+    // Store items in session for later publishing
+    if (ctx.session) {
+      (ctx.session as any).rssItems = items;
+    }
+  } catch (error) {
+    console.error('RSS fetch error:', error);
+    await ctx.reply(`❌ Ошибка загрузки RSS: ${error}`);
+  }
+}
+
+// Publish RSS news
+export async function handleRSSPublish(ctx: BotContext, index: number = 0): Promise<void> {
+  if (!await isAdmin(ctx)) return;
+
+  try {
+    const items = (ctx.session as any)?.rssItems || await fetchKazanPlaceNews(10);
+
+    if (!items || items.length === 0) {
+      await ctx.answerCallbackQuery('❌ Нет загруженных новостей');
+      return;
+    }
+
+    const item = items[index] || items[0];
+    const caption = generatePostFromRSSItem(item);
+
+    await ctx.answerCallbackQuery('⏳ Публикую...');
+
+    const success = await sendMessageToChannel(caption);
+
+    if (success) {
+      await ctx.reply(`✅ Опубликовано: "${item.title}"`);
+    } else {
+      await ctx.reply('❌ Ошибка при публикации');
+    }
+  } catch (error) {
+    console.error('RSS publish error:', error);
+    await ctx.reply(`❌ Ошибка: ${error}`);
+  }
+}
+
+// Publish latest RSS news
+export async function handleRSSPublishLatest(ctx: BotContext): Promise<void> {
+  if (!await isAdmin(ctx)) return;
+
+  await ctx.answerCallbackQuery('⏳ Загружаю и публикую...');
+
+  try {
+    const items = await fetchKazanPlaceNews(5);
+
+    if (items.length === 0) {
+      await ctx.reply('❌ Нет новостей для публикации.');
+      return;
+    }
+
+    const item = items[0];
+    const caption = generatePostFromRSSItem(item);
+
+    const success = await sendMessageToChannel(caption);
+
+    if (success) {
+      await ctx.reply(`✅ Опубликована свежая новость:\n\n${item.title}`);
+    } else {
+      await ctx.reply('❌ Ошибка при публикации');
+    }
+  } catch (error) {
+    console.error('RSS publish latest error:', error);
+    await ctx.reply(`❌ Ошибка: ${error}`);
+  }
+}
+
+// Helper: escape HTML
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // Handle auto-post actions

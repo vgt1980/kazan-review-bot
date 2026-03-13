@@ -100,7 +100,7 @@ import {
   addPlaceConfirm,
   addPlaceCancel,
 } from './handlers/admin';
-import { showAutoPostMenu, handleAutoPostAction } from './handlers/autopost';
+import { showAutoPostMenu, handleAutoPostAction, showRSSMenu, handleRSSFetch, handleRSSPublish, handleRSSPublishLatest } from './handlers/autopost';
 import { showImportMenu, handleImportAction } from './handlers/import';
 
 // Create bot
@@ -393,6 +393,22 @@ bot.callbackQuery('autopost_top', async (ctx) => {
 bot.callbackQuery(/autopost_cat_(.+)/, async (ctx) => {
   const category = ctx.match[1];
   await handleAutoPostAction(ctx, `cat_${category}`);
+});
+
+// RSS handlers
+bot.callbackQuery('autopost_rss', async (ctx) => {
+  await showRSSMenu(ctx);
+  await ctx.answerCallbackQuery();
+});
+bot.callbackQuery('rss_fetch', async (ctx) => {
+  await handleRSSFetch(ctx);
+});
+bot.callbackQuery('rss_publish_latest', async (ctx) => {
+  await handleRSSPublishLatest(ctx);
+});
+bot.callbackQuery(/rss_publish_(\d+)/, async (ctx) => {
+  const index = parseInt(ctx.match[1]);
+  await handleRSSPublish(ctx, index);
 });
 
 // Import places
