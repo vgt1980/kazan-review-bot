@@ -32,8 +32,8 @@ export interface TwoGISPlace {
 const TWOGIS_API_KEY = process.env.TWOGIS_API_KEY || '629f0d11-ac03-44b8-893b-c772f057c68f';
 const TWOGIS_API_URL = 'https://catalog.api.2gis.ru';
 
-// Kazan region ID in 2GIS
-const KAZAN_REGION_ID = 32;
+// Kazan city name for search queries
+const KAZAN_CITY = 'Казань';
 
 // Search categories for 2GIS
 export const SEARCH_QUERIES = {
@@ -156,10 +156,12 @@ export async function search2GIS(
   pageSize: number = 50
 ): Promise<{ places: TwoGISPlace[]; total: number; hasMore: boolean }> {
   try {
+    // Add Kazan to query if not present
+    const searchQuery = query.toLowerCase().includes('казань') ? query : `${query} ${KAZAN_CITY}`;
+    
     const params = new URLSearchParams({
-      q: query,
-      region_id: String(KAZAN_REGION_ID),
-      page_size: String(pageSize),
+      q: searchQuery,
+      page_size: '10',
       page: String(page),
       key: TWOGIS_API_KEY,
       fields: 'items.point,items.address,items.contacts,items.schedule,items.rating,items.photos,items.rubrics',
