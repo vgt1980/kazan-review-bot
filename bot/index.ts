@@ -103,29 +103,21 @@ import {
 import { showAutoPostMenu, handleAutoPostAction, showRSSMenu, handleRSSFetch, handleRSSPublish, handleRSSPublishLatest } from './handlers/autopost';
 import { showImportMenu, handleImportAction } from './handlers/import';
 
-// Bot info (cached for webhook mode)
-const BOT_INFO = {
-  id: 8771795670,
-  is_bot: true,
-  first_name: "Честная Казань",
-  username: "Chest_Kazan_bot",
-  can_join_groups: true,
-  can_read_all_group_messages: false,
-  supports_inline_queries: false,
-};
-
-// Create bot with cached bot info (required for webhook mode)
-const bot = new Bot<BotContext>(process.env.BOT_TOKEN || '', {
-  botInfo: BOT_INFO
-});
+// Create bot
+const bot = new Bot<BotContext>(process.env.BOT_TOKEN || '');
 
 // Apply session middleware
 bot.use(sessionMiddleware);
 
-// Initialize bot (no-op since botInfo is provided)
+// Bot initialization state
+let isInitialized = false;
+
+// Initialize bot (needed for webhook mode)
 export async function initBot(): Promise<void> {
-  // Bot info already provided in constructor
-  // This is a no-op for compatibility
+  if (!isInitialized) {
+    await bot.init();
+    isInitialized = true;
+  }
 }
 
 // ==================== SETUP MENU BUTTON ====================

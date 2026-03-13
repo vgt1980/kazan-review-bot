@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Cache for bot initialization
+let botInitPromise: Promise<void> | null = null;
+
 // Webhook endpoint for Telegram
 export async function POST(request: NextRequest) {
   try {
-    // Import bot and init function
-    const { default: bot, initBot } = await import('../../../../bot');
+    // Import bot module
+    const botModule = await import('../../../../bot');
+    const bot = botModule.default;
+    const initBot = botModule.initBot;
     
-    // Initialize bot for webhook mode (required by grammY)
-    await initBot();
+    // Initialize bot once (cached)
+    if (initBot) {
+      if (!botInitPromise) {
+        botInitPromise = initBot();
+      }
+      await botInitPromise;
+    }
     
     const body = await request.json();
     
@@ -19,7 +29,12 @@ export async function POST(request: NextRequest) {
     console.error('Error processing webhook:', error);
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error details:', errorMessage);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    console.error('Webhook error:', {
+      message: errorMessage,
+      stack: errorStack?.split('\n').slice(0, 5).join('\n'),
+    });
     
     return NextResponse.json(
       { error: 'Internal server error', details: errorMessage },
